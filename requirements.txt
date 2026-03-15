@@ -1,0 +1,4 @@
+# India Market Dashboard - Dependencies
+# Python standard library only — no pip packages needed!
+# Python 3.8+ required
+# Render.com uses this file to detect it's a Python app

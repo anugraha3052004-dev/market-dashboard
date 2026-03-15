@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: india-market-dashboard
+    env: python
+    plan: free
+    buildCommand: echo "No build needed"
+    startCommand: python server.py
+    envVars:
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      - key: PORT
+        value: 10000
