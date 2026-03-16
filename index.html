@@ -58,7 +58,7 @@ body{font-family:var(--ff);background:var(--bg);color:var(--t1);min-height:100vh
 .amb2{width:500px;height:500px;background:radial-gradient(var(--ind),transparent 70%);bottom:-150px;left:-150px}
 
 /* ══ HEADER ══ */
-.hdr{position:sticky;top:0;z-index:300;background:rgba(6,11,20,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--bdr)}
+.hdr{position:sticky;top:0;z-index:300;background:rgba(6,11,20,.95);backdrop-filter:blur(20px);border-bottom:1px solid var(--bdr)}
 .hdr-in{max-width:1380px;margin:0 auto;padding:0 20px;height:56px;display:flex;align-items:center;justify-content:space-between;gap:10px}
 .logo{display:flex;align-items:center;gap:10px;cursor:pointer;text-decoration:none}
 .logo-ico{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--acc),var(--ind));display:grid;place-items:center;font-size:17px;flex-shrink:0;box-shadow:0 0 20px var(--glow)}
@@ -306,152 +306,192 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
 .ctab.on{background:var(--acc);color:#fff;border-color:transparent;box-shadow:0 0 10px var(--glow)}
 
 
-/* ══ COMPLETE MOBILE RESPONSIVE ══ */
+.live-pill{font-size:9px;padding:3px 8px}}
+/* ══════════════════════════════════════
+   MOBILE RESPONSIVE — Complete Fix
+   ══════════════════════════════════════ */
+
+/* ── TABLET (< 900px) ── */
 @media(max-width:900px){
   #mn-grid{grid-template-columns:1fr!important}
+  .cg{grid-template-columns:1fr 1fr}
+  .fut-g{grid-template-columns:1fr 1fr}
 }
 
+/* ── MOBILE (< 768px) ── */
 @media(max-width:768px){
-  /* Header */
-  .hdr-in{height:auto;padding:8px 14px;gap:8px}
-  .logo-txt{font-size:13px}
+
+  /* === HEADER === */
+  .hdr-in{height:auto;min-height:52px;padding:8px 12px;flex-wrap:nowrap;gap:6px}
+  .logo-ico{width:30px;height:30px;font-size:14px;flex-shrink:0}
+  .logo-txt{font-size:12px;letter-spacing:-.3px}
   .logo-sub{display:none}
-  .hdr-r{gap:5px}
+  .hdr-r{gap:4px;flex-wrap:nowrap}
+  .live-pill{padding:3px 7px;font-size:9px}
   .live-pill span:last-child{display:none}
-  .btn{padding:6px 10px;font-size:10px}
-  .th-btn{padding:5px 8px;font-size:10px}
-  .th-menu{right:-10px;min-width:150px}
+  #comm-hdr-btn{display:none}
+  .th-btn{padding:5px 8px;font-size:10px;gap:3px}
+  .th-menu{right:0;min-width:155px}
+  .btn-pri{padding:6px 10px;font-size:10px}
 
-  /* Tabs — scrollable horizontal */
-  .tabs{padding:0 10px;overflow-x:auto;-webkit-overflow-scrolling:touch}
-  .tabs-in{gap:0;min-width:max-content}
-  .tab{padding:9px 12px;font-size:10px;letter-spacing:0}
+  /* === BOTTOM TAB BAR === */
+  .tabs{
+    position:fixed;bottom:0;left:0;right:0;
+    top:auto!important;z-index:250;
+    border-top:1px solid var(--bdr);
+    border-bottom:none;
+    background:var(--bg2);
+    backdrop-filter:blur(20px);
+    -webkit-backdrop-filter:blur(20px);
+    padding:0;overflow:visible
+  }
+  .tabs-in{
+    justify-content:space-around;
+    min-width:unset;width:100%;gap:0
+  }
+  .tab{
+    padding:8px 4px 10px;
+    font-size:9px;flex:1;
+    text-align:center;
+    border-bottom:none!important;
+    border-top:2px solid transparent;
+    display:flex;flex-direction:column;
+    align-items:center;gap:2px;
+    letter-spacing:0;white-space:nowrap;
+    min-width:0
+  }
+  .tab span:first-child{font-size:20px;line-height:1}
+  .tab span:last-child{font-size:9px;color:var(--t3)}
+  .tab.on{border-top-color:var(--acc);color:var(--acc)}
+  .tab.on span:last-child{color:var(--acc)}
 
-  /* Main padding */
-  .main{padding:12px}
+  /* === MAIN CONTENT — pad bottom for tab bar === */
+  .main{padding:12px 12px 72px 12px}
+  body{padding-bottom:0}
 
-  /* Status bar */
-  .sb{font-size:11px;padding:9px 12px}
+  /* === STATUS BAR === */
+  .sb{font-size:11px;padding:9px 12px;line-height:1.4}
 
-  /* SOTD hero */
-  .sotd{padding:16px;flex-direction:column;gap:12px}
-  .sotd-name{font-size:20px}
-  .sotd-conf{font-size:32px}
+  /* === SOTD HERO === */
+  .sotd{padding:14px;gap:12px}
+  .sotd-name{font-size:18px;line-height:1.2}
+  .sotd-price{font-size:13px}
+  .sotd-conf{font-size:30px}
+  .sotd-reason{font-size:11px}
 
-  /* Scanner */
-  .scanner{padding:14px}
+  /* === SCANNER === */
+  .scanner{padding:13px}
   .scanner-hdr{flex-direction:column;gap:8px}
   .scanner-title{font-size:13px}
+  #scan-btn{width:100%}
   .opp-grid{grid-template-columns:1fr 1fr;gap:8px}
+  .opp{padding:11px}
 
-  /* Filters — scrollable */
-  .filters{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;gap:5px}
+  /* === FILTERS === */
+  .filters{
+    flex-wrap:nowrap;overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    padding-bottom:4px;gap:5px;
+    scrollbar-width:none
+  }
   .filters::-webkit-scrollbar{display:none}
   .fb{white-space:nowrap;flex-shrink:0;font-size:10px;padding:4px 10px}
-  .ac-wrap{min-width:140px;flex-shrink:0}
+  .ac-wrap{min-width:130px;flex-shrink:0;max-width:160px}
 
-  /* Add box */
-  .add-box{padding:12px}
+  /* === ADD STOCK BOX === */
+  .add-box{padding:11px}
   .add-row{flex-direction:column;gap:6px}
   .add-iw{min-width:100%}
-  .add-inp{font-size:12px}
+  .add-inp{font-size:12px;padding:9px 12px}
+  .btn-pri{width:100%}
   .chips{gap:4px}
   .chip{font-size:9px;padding:3px 8px}
 
-  /* Stock table — show only essential columns */
-  .tbl-wrap{border-radius:var(--r12);overflow-x:auto}
-  table{min-width:500px}
-  th,td{padding:10px 10px;font-size:11px}
-  th:nth-child(n+7),td:nth-child(n+7){display:none}
+  /* === STOCK TABLE === */
+  .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--r12)}
+  .tbl-wrap table{min-width:480px}
+  th{padding:9px 10px;font-size:9px}
+  td{padding:11px 10px;font-size:11px}
+  /* Hide: Signal, Volume, Trend, Confidence — keep Stock, Price, Change, Call, Action */
+  th:nth-child(4),td:nth-child(4){display:none}
   th:nth-child(6),td:nth-child(6){display:none}
-  .sname{font-size:12px}
+  th:nth-child(7),td:nth-child(7){display:none}
+  th:nth-child(8),td:nth-child(8){display:none}
+  .sname{font-size:12px;font-weight:700;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis}
   .stk{font-size:9px}
-  .pf{font-size:12px}
+  .pf{font-size:13px}
 
-  /* Watchlist */
+  /* === WATCHLIST === */
   .wg{grid-template-columns:1fr 1fr;gap:8px}
+  .wc{padding:11px}
 
-  /* Commodities */
+  /* === COMMODITIES === */
   .cg{grid-template-columns:1fr;gap:12px}
   .cc{padding:14px}
+  .pg2{grid-template-columns:1fr 1fr;gap:8px}
+  .pv{font-size:15px}
   .fut-g{grid-template-columns:1fr;gap:10px}
-  .etf-g{grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .etf-g{grid-template-columns:1fr 1fr;gap:8px}
   .etf-c{padding:10px}
 
-  /* Detail page */
+  /* === DETAIL PAGE === */
+  .back{font-size:12px;margin-bottom:12px}
   .d-hdr{flex-direction:column;gap:10px;padding:14px}
   .d-hdr>div:last-child{text-align:left}
-  .d-price{font-size:26px}
-  .d-name{font-size:18px}
+  .d-price{font-size:24px}
+  .d-name{font-size:17px;letter-spacing:-.3px}
+  .d-sub{font-size:10px}
   .dgrid{grid-template-columns:1fr;gap:12px}
-  .ig{grid-template-columns:1fr 1fr}
+  .ig{grid-template-columns:1fr 1fr;gap:8px}
+  .ib{padding:9px}
+  .iv{font-size:14px}
 
-  /* Strategy box */
+  /* === STRATEGY BOX === */
   .strat{padding:14px}
   .strat-hdr{flex-direction:column;gap:10px}
   .pt-grid{grid-template-columns:1fr 1fr;gap:8px}
   .pt{padding:10px}
-  .pt-v{font-size:16px}
+  .pt-v{font-size:15px}
+  .pt-l{font-size:8px}
   .reason-g{grid-template-columns:1fr}
+  .reason{padding:8px 10px}
+  .r-txt{font-size:11px}
+  .sp-pt{font-size:11px}
 
-  /* Market news */
+  /* === NEWS === */
+  .ni{padding:9px 0}
+  .nt{font-size:12px}
+
+  /* === CARDS === */
+  .card{padding:13px;border-radius:var(--r12)}
+  .card-sm{padding:11px}
+  .ct{font-size:9px;margin-bottom:10px}
+
+  /* === MARKET NEWS === */
   #mn-grid{grid-template-columns:1fr!important;gap:12px}
+  #mn-feed .ni{padding:10px 0}
 
-  /* Cards */
-  .card{padding:14px;border-radius:var(--r12)}
-  .card-sm{padding:12px}
+  /* === FOOTER === */
+  .footer{font-size:9px;padding:12px;margin-bottom:0}
 
-  /* Chart canvas */
-  #c7,#c30{height:130px!important}
-  #cc{height:180px!important}
-
-  /* PWA banner */
-  #pwa-banner{bottom:10px;width:95%;max-width:95%;padding:10px 14px}
+  /* === PWA BANNER === */
+  #pwa-banner{bottom:68px;width:94%;max-width:94%;padding:10px 12px;border-radius:var(--r12)}
 }
 
-/* Extra small phones (< 400px) */
+/* ── SMALL PHONES (< 400px) ── */
 @media(max-width:400px){
-  .opp-grid{grid-template-columns:1fr}
+  .opp-grid{grid-template-columns:1fr 1fr}
   .wg{grid-template-columns:1fr 1fr}
   .etf-g{grid-template-columns:1fr 1fr}
   .pt-grid{grid-template-columns:1fr 1fr}
+  .main{padding:10px 10px 72px 10px}
   .hdr-in{padding:6px 10px}
-  .main{padding:10px}
-  .tab{padding:8px 10px;font-size:9px}
-  .sotd-name{font-size:17px}
-  table{min-width:420px}
+  .sotd-name{font-size:16px}
+  .d-price{font-size:22px}
+  .tab span:first-child{font-size:18px}
+  .tab span:last-child{font-size:8px}
 }
-
-/* Bottom navigation for mobile — makes key pages thumb-accessible */
-@media(max-width:768px){
-  .tabs{position:fixed;bottom:0;left:0;right:0;top:auto;z-index:250;border-top:1px solid var(--bdr);border-bottom:none;background:var(--bg2);backdrop-filter:blur(20px);padding:0}
-  .tabs-in{justify-content:space-around;min-width:unset;width:100%}
-  .tab{padding:10px 8px 12px;font-size:9px;flex:1;text-align:center;border-bottom:none;border-top:2px solid transparent;display:flex;flex-direction:column;align-items:center;gap:2px;letter-spacing:0}
-  .tab.on{border-top-color:var(--acc);border-bottom:none}
-  /* Add bottom padding to main so content isn't hidden behind bottom nav */
-  .main{padding-bottom:70px}
-  /* Header becomes top bar only */
-  .hdr{top:0}
-}
-
-/* Light theme — fix all hardcoded dark backgrounds */
-[data-theme=white] .opp,[data-theme=rose] .opp,[data-theme=slate] .opp{background:#fff;border-color:var(--bdr2)}
-[data-theme=white] .cc,[data-theme=rose] .cc,[data-theme=slate] .cc{background:#fff}
-[data-theme=white] .fut-c,[data-theme=rose] .fut-c,[data-theme=slate] .fut-c{background:#fff}
-[data-theme=white] .etf-c,[data-theme=rose] .etf-c,[data-theme=slate] .etf-c{background:var(--bg2)}
-[data-theme=white] .pb,[data-theme=rose] .pb,[data-theme=slate] .pb{background:var(--bg2)}
-[data-theme=white] .srow,[data-theme=rose] .srow,[data-theme=slate] .srow{background:var(--bg2)}
-[data-theme=white] .ai-notes,[data-theme=rose] .ai-notes,[data-theme=slate] .ai-notes{background:var(--bg2)}
-[data-theme=white] .ib,[data-theme=rose] .ib,[data-theme=slate] .ib{background:var(--bg2)}
-[data-theme=white] .wc,[data-theme=rose] .wc,[data-theme=slate] .wc{background:#fff}
-[data-theme=white] .scanner,[data-theme=rose] .scanner,[data-theme=slate] .scanner{background:#fff}
-[data-theme=white] .add-box,[data-theme=rose] .add-box,[data-theme=slate] .add-box{background:var(--bg2)}
-[data-theme=white] .card-sm,[data-theme=rose] .card-sm,[data-theme=slate] .card-sm{background:var(--bg2)}
-[data-theme=white] .d-hdr,[data-theme=rose] .d-hdr,[data-theme=slate] .d-hdr{background:#fff}
-[data-theme=white] tr[data-s]:hover td,[data-theme=rose] tr[data-s]:hover td,[data-theme=slate] tr[data-s]:hover td{background:rgba(59,130,246,.05)}
-/* Scrollbar on light */
-[data-theme=white]::-webkit-scrollbar-track,[data-theme=rose]::-webkit-scrollbar-track,[data-theme=slate]::-webkit-scrollbar-track{background:var(--bg2)}
-@media(max-width:768px){#comm-hdr-btn{display:none}.live-pill{font-size:9px;padding:3px 8px}}</style>
+</style>
 </head>
 <body>
 <div class="amb amb1"></div>
@@ -479,7 +519,7 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
           <div class="th-row" onclick="setTh('slate','Slate')"><span class="th-sw" style="background:linear-gradient(135deg,#475569,#6366f1);border:1px solid #e2e8f0"></span>Slate Pro</div>
         </div>
       </div>
-      <button class="btn btn-sec" onclick="goPage('commodities')" id="comm-hdr-btn">🏅 Commodities</button>
+      <button class="btn btn-sec" onclick="goPage('commodities')" id="comm-hdr-btn" style="display:none" onmouseenter="this.style.display='inline-flex'" >🏅 Commodities</button>
       <button class="btn btn-pri" id="rbtn" onclick="boot()">⟳ Refresh</button>
     </div>
   </div>
