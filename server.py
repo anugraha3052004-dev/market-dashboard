@@ -635,23 +635,26 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def send_file(self, fp, ct):
-        # Try given path first, then fallback to root (for flat GitHub structure)
-        paths_to_try = [fp]
-        if fp.startswith("static/"):
-            paths_to_try.append(fp[len("static/"):])  # try root
-        for path in paths_to_try:
+        # Strip static/ prefix — all files are in root on Render
+        path = fp.replace("static/", "").replace("static\\", "")
+        # Also try original path as fallback
+        for p in [path, fp]:
             try:
-                body = open(path,"rb").read()
+                with open(p, "rb") as f:
+                    body = f.read()
                 self.send_response(200)
-                self.send_header("Content-Type",ct)
-                self.send_header("Content-Length",str(len(body)))
+                self.send_header("Content-Type", ct)
+                self.send_header("Content-Length", str(len(body)))
                 self._cors()
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            except FileNotFoundError:
+            except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
                 continue
-        self.send_response(404); self.end_headers()
+        print(f"  [404] File not found: {fp}")
+        self.send_response(404)
+        self._cors()
+        self.end_headers()
 
     def do_OPTIONS(self):
         self.send_response(200)
