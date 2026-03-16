@@ -4,7 +4,7 @@ Commodities  → Twelve Data + gold-api.com (free)
 NSE Stocks   → Yahoo Finance (parallel + 5-min cache)
 News         → Yahoo Finance RSS (free)
 """
-import os, json, time, math, threading
+import os, json, time, math, threading, re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, urlencode
 from urllib.request import urlopen, Request
@@ -432,7 +432,6 @@ def classify_sentiment(title):
     return "neutral"
 
 def fetch_news(symbol, limit=10):
-    import re as _re
     clean = symbol.upper().replace(".NS","").replace(".BO","").strip()
     news  = []
     seen  = set()
@@ -454,7 +453,7 @@ def fetch_news(symbol, limit=10):
                 seen.add(title)
                 link  = (item.findtext("link") or "").strip()
                 date  = (item.findtext("pubDate") or "").strip()
-                desc  = _re.sub(r'<[^>]+>', '', (item.findtext("description") or ""))[:200]
+                desc  = re.sub(r'<[^>]+>', '', (item.findtext("description") or ""))[:200]
                 sentiment = classify_sentiment(title + " " + desc)
                 impact = "HIGH"   if any(w in title.lower() for w in ["result","q4","q3","q2","q1","earnings","profit","loss","acquisition","merger","penalty","fraud","upgrade","downgrade","dividend"]) \
                     else "MEDIUM" if any(w in title.lower() for w in ["launch","expand","contract","order","deal","partner"]) \
@@ -491,7 +490,7 @@ def fetch_news(symbol, limit=10):
                 seen.add(title)
                 link  = (item.findtext("link") or "").strip()
                 date  = (item.findtext("pubDate") or "").strip()
-                desc  = _re.sub(r'<[^>]+>', '', (item.findtext("description") or ""))[:200]
+                desc  = re.sub(r'<[^>]+>', '', (item.findtext("description") or ""))[:200]
                 sentiment = classify_sentiment(title + " " + desc)
                 impact = "HIGH" if any(w in title.lower() for w in ["result","earnings","profit","loss","dividend","upgrade","downgrade"]) else "MEDIUM"
                 news.append({"title":title,"link":link,"date":date,"desc":desc,"sentiment":sentiment,"impact":impact,"source":"Economic Times"})
@@ -564,7 +563,6 @@ def fetch_market_news():
                 desc  = (item.findtext("description") or "").strip()
 
                 # Strip HTML tags from desc
-                import re
                 desc = re.sub(r'<[^>]+>', '', desc)[:250]
 
                 if not title or title in seen: continue
@@ -638,7 +636,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_file(self, fp, ct):
         # Try given path first, then fallback to root (for flat GitHub structure)
-        import os
         paths_to_try = [fp]
         if fp.startswith("static/"):
             paths_to_try.append(fp[len("static/"):])  # try root
@@ -1081,7 +1078,7 @@ NSE_STOCKS = [
 ]
 
 def run():
-    port = int(os.environ.get("PORT",8000))
+    port = int(os.environ.get("PORT") or 10000)
     srv  = HTTPServer(("0.0.0.0",port), Handler)
     print("="*60)
     print("  India Market Dashboard - Backend v3")
