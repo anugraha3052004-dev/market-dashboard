@@ -59,12 +59,12 @@ body{font-family:var(--ff);background:var(--bg);color:var(--t1);min-height:100vh
 
 /* ══ HEADER ══ */
 .hdr{position:sticky;top:0;z-index:300;background:rgba(6,11,20,.95);backdrop-filter:blur(20px);border-bottom:1px solid var(--bdr)}
-.hdr-in{max-width:1380px;margin:0 auto;padding:0 20px;height:56px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.hdr-in{max-width:1380px;margin:0 auto;padding:0 20px;min-height:56px;height:auto;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .logo{display:flex;align-items:center;gap:10px;cursor:pointer;text-decoration:none}
 .logo-ico{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--acc),var(--ind));display:grid;place-items:center;font-size:17px;flex-shrink:0;box-shadow:0 0 20px var(--glow)}
 .logo-txt{font-size:15px;font-weight:800;color:var(--t1);letter-spacing:-.4px}
 .logo-sub{font-size:10px;color:var(--t3);font-family:var(--fm);margin-top:1px}
-.hdr-r{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.hdr-r{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
 .live-pill{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;background:var(--buy-bg);border:1px solid var(--buy-bd);font-size:10px;font-family:var(--fm);color:var(--buy)}
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--buy);animation:livepulse 2s infinite}
 @keyframes livepulse{0%,100%{opacity:1;box-shadow:0 0 0 0 var(--buy)}60%{opacity:.7;box-shadow:0 0 0 5px transparent}}
@@ -88,8 +88,8 @@ body{font-family:var(--ff);background:var(--bg);color:var(--t1);min-height:100vh
 .btn:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
 
 /* ══ TABS ══ */
-.tabs{background:var(--bg2);border-bottom:1px solid var(--bdr);padding:0 20px;position:relative;z-index:2}
-.tabs-in{max-width:1380px;margin:0 auto;display:flex}
+.tabs{background:var(--bg2);border-bottom:1px solid var(--bdr);padding:0 20px;z-index:250}
+.tabs-in{max-width:1380px;margin:0 auto;display:flex;width:100%}
 .tab{padding:11px 18px;font-size:11px;font-weight:600;color:var(--t3);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;font-family:var(--fm);letter-spacing:.5px;text-transform:uppercase;white-space:nowrap}
 .tab.on{color:var(--t1);border-bottom-color:var(--acc)}
 .tab:hover:not(.on){color:var(--t2)}
