@@ -305,11 +305,10 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
 .ctab{font-size:10px;font-family:var(--fm);padding:5px 12px;border:1px solid var(--bdr);border-radius:var(--r8);cursor:pointer;background:transparent;color:var(--t3);transition:all .15s}
 .ctab.on{background:var(--acc);color:#fff;border-color:transparent;box-shadow:0 0 10px var(--glow)}
 
-
-.live-pill{font-size:9px;padding:3px 8px}
-/* ══════════════════════════════════════
-   MOBILE RESPONSIVE — Complete Fix
-   ══════════════════════════════════════ */
+/* ══════════════════════════════════════════════════
+   MOBILE RESPONSIVE — Complete Fix v2
+   Fixes: header overlap, filter overflow, sotd layout
+   ══════════════════════════════════════════════════ */
 
 /* ── TABLET (< 900px) ── */
 @media(max-width:900px){
@@ -321,20 +320,49 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
 /* ── MOBILE (< 768px) ── */
 @media(max-width:768px){
 
-  /* === HEADER === */
-  .hdr-in{height:auto;min-height:52px;padding:8px 12px;flex-wrap:nowrap;gap:6px}
-  .logo-ico{width:30px;height:30px;font-size:14px;flex-shrink:0}
-  .logo-txt{font-size:12px;letter-spacing:-.3px}
-  .logo-sub{display:none}
-  .hdr-r{gap:4px;flex-wrap:nowrap}
-  .live-pill{padding:3px 7px;font-size:9px}
-  .live-pill span:last-child{display:none}
-  #comm-hdr-btn{display:none}
-  .th-btn{padding:5px 8px;font-size:10px;gap:3px}
-  .th-menu{right:0;min-width:155px}
-  .btn-pri{padding:6px 10px;font-size:10px}
+  /* ===== FIX 1: HEADER OVERLAP =====
+     Problem: Theme dropdown + Commodities btn + Refresh btn all crowd in
+     Solution: shrink logo, hide text labels, keep only icons */
+  .hdr-in{
+    height:auto;
+    min-height:48px;
+    padding:6px 10px;
+    flex-wrap:nowrap;   /* NEVER wrap — keep single row */
+    gap:4px;
+    align-items:center
+  }
 
-  /* === BOTTOM TAB BAR === */
+  /* Logo — tighter */
+  .logo{gap:7px}
+  .logo-ico{width:28px;height:28px;font-size:13px;flex-shrink:0}
+  .logo-txt{font-size:11px;letter-spacing:-.3px;white-space:nowrap}
+  .logo-sub{display:none}
+
+  /* Right controls — no wrap, tightly packed */
+  .hdr-r{
+    display:flex;
+    align-items:center;
+    gap:4px;
+    flex-wrap:nowrap;
+    flex-shrink:0
+  }
+
+  /* Live pill — dot only, hide countdown */
+  .live-pill{padding:3px 7px;font-size:9px;gap:3px}
+  .live-pill #cd{display:none}   /* hide "Refresh: 4:59" text */
+
+  /* Hide commodities header btn on mobile (accessible via bottom tab) */
+  #comm-hdr-btn{display:none!important}
+
+  /* Theme btn — show emoji only, hide "Dark" label text */
+  .th-btn{padding:5px 7px;font-size:11px;gap:0;min-width:32px;justify-content:center}
+  #th-lbl{display:none}
+  .th-menu{right:0;min-width:155px;top:calc(100% + 4px)}
+
+  /* Refresh btn — compact */
+  #rbtn{padding:5px 9px;font-size:10px;white-space:nowrap}
+
+  /* ===== FIX 2: BOTTOM TAB BAR ===== */
   .tabs{
     position:fixed;bottom:0;left:0;right:0;
     top:auto!important;z-index:250;
@@ -345,12 +373,9 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
     -webkit-backdrop-filter:blur(20px);
     padding:0;overflow:visible
   }
-  .tabs-in{
-    justify-content:space-around;
-    min-width:unset;width:100%;gap:0
-  }
+  .tabs-in{justify-content:space-around;min-width:unset;width:100%;gap:0}
   .tab{
-    padding:8px 4px 10px;
+    padding:7px 4px 9px;
     font-size:9px;flex:1;
     text-align:center;
     border-bottom:none!important;
@@ -360,26 +385,60 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
     letter-spacing:0;white-space:nowrap;
     min-width:0
   }
-  .tab span:first-child{font-size:20px;line-height:1}
-  .tab span:last-child{font-size:9px;color:var(--t3)}
+  .tab span:first-child{font-size:18px;line-height:1}
+  .tab span:last-child{font-size:8px;color:var(--t3)}
   .tab.on{border-top-color:var(--acc);color:var(--acc)}
   .tab.on span:last-child{color:var(--acc)}
 
-  /* === MAIN CONTENT — pad bottom for tab bar === */
-  .main{padding:12px 12px 72px 12px}
-  body{padding-bottom:0}
+  /* Padding bottom so content clears the tab bar */
+  .main{padding:12px 12px 74px 12px}
 
-  /* === STATUS BAR === */
+  /* ===== FIX 3: STATUS BAR ===== */
   .sb{font-size:11px;padding:9px 12px;line-height:1.4}
 
-  /* === SOTD HERO === */
-  .sotd{padding:14px;gap:12px}
+  /* ===== FIX 4: SOTD — stack vertically so right side doesn't float =====
+     Problem: confidence score floated right and overlapped text on narrow screens */
+  .sotd{
+    padding:14px;
+    gap:12px;
+    flex-direction:column   /* stack left and right sections vertically */
+  }
+  .sotd>div:last-child{
+    text-align:left!important;  /* left-align confidence + button */
+    display:flex;
+    flex-wrap:wrap;
+    gap:12px;
+    align-items:center
+  }
   .sotd-name{font-size:18px;line-height:1.2}
   .sotd-price{font-size:13px}
   .sotd-conf{font-size:30px}
   .sotd-reason{font-size:11px}
 
-  /* === SCANNER === */
+  /* ===== FIX 5: FILTERS — horizontal scroll =====
+     Problem: filter pills + search wrap to 2 rows and overflow */
+  .filters{
+    flex-wrap:nowrap;             /* single scrollable row */
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    padding-bottom:4px;
+    gap:5px;
+    scrollbar-width:none;
+    align-items:center
+  }
+  .filters::-webkit-scrollbar{display:none}
+  .fb{white-space:nowrap;flex-shrink:0;font-size:10px;padding:4px 10px}
+  /* Search box — fixed width, won't expand */
+  .ac-wrap{
+    min-width:110px;
+    max-width:110px;
+    flex:0 0 110px;   /* don't grow, don't shrink */
+    flex-shrink:0
+  }
+  .ac-inp{font-size:10px;padding:6px 10px 6px 26px}
+  .ac-ico{font-size:10px;left:8px}
+
+  /* ===== FIX 6: SCANNER ===== */
   .scanner{padding:13px}
   .scanner-hdr{flex-direction:column;gap:8px}
   .scanner-title{font-size:13px}
@@ -387,45 +446,34 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
   .opp-grid{grid-template-columns:1fr 1fr;gap:8px}
   .opp{padding:11px}
 
-  /* === FILTERS === */
-  .filters{
-    flex-wrap:nowrap;overflow-x:auto;
-    -webkit-overflow-scrolling:touch;
-    padding-bottom:4px;gap:5px;
-    scrollbar-width:none
-  }
-  .filters::-webkit-scrollbar{display:none}
-  .fb{white-space:nowrap;flex-shrink:0;font-size:10px;padding:4px 10px}
-  .ac-wrap{min-width:130px;flex-shrink:0;max-width:160px}
-
-  /* === ADD STOCK BOX === */
+  /* ===== FIX 7: ADD STOCK BOX ===== */
   .add-box{padding:11px}
   .add-row{flex-direction:column;gap:6px}
-  .add-iw{min-width:100%}
+  .add-iw{min-width:100%;flex:1}
   .add-inp{font-size:12px;padding:9px 12px}
-  .btn-pri{width:100%}
+  .add-row .btn-pri{width:100%}
   .chips{gap:4px}
   .chip{font-size:9px;padding:3px 8px}
 
-  /* === STOCK TABLE === */
+  /* ===== FIX 8: STOCK TABLE ===== */
   .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--r12)}
-  .tbl-wrap table{min-width:480px}
+  .tbl-wrap table{min-width:460px}
   th{padding:9px 10px;font-size:9px}
   td{padding:11px 10px;font-size:11px}
-  /* Hide: Signal, Volume, Trend, Confidence — keep Stock, Price, Change, Call, Action */
+  /* Hide less-critical columns on mobile */
   th:nth-child(4),td:nth-child(4){display:none}
   th:nth-child(6),td:nth-child(6){display:none}
   th:nth-child(7),td:nth-child(7){display:none}
   th:nth-child(8),td:nth-child(8){display:none}
-  .sname{font-size:12px;font-weight:700;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis}
+  .sname{font-size:12px;font-weight:700;white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis}
   .stk{font-size:9px}
   .pf{font-size:13px}
 
-  /* === WATCHLIST === */
+  /* ===== WATCHLIST ===== */
   .wg{grid-template-columns:1fr 1fr;gap:8px}
   .wc{padding:11px}
 
-  /* === COMMODITIES === */
+  /* ===== COMMODITIES ===== */
   .cg{grid-template-columns:1fr;gap:12px}
   .cc{padding:14px}
   .pg2{grid-template-columns:1fr 1fr;gap:8px}
@@ -434,10 +482,10 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
   .etf-g{grid-template-columns:1fr 1fr;gap:8px}
   .etf-c{padding:10px}
 
-  /* === DETAIL PAGE === */
+  /* ===== DETAIL PAGE ===== */
   .back{font-size:12px;margin-bottom:12px}
   .d-hdr{flex-direction:column;gap:10px;padding:14px}
-  .d-hdr>div:last-child{text-align:left}
+  .d-hdr>div:last-child{text-align:left!important}
   .d-price{font-size:24px}
   .d-name{font-size:17px;letter-spacing:-.3px}
   .d-sub{font-size:10px}
@@ -446,7 +494,7 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
   .ib{padding:9px}
   .iv{font-size:14px}
 
-  /* === STRATEGY BOX === */
+  /* ===== STRATEGY BOX ===== */
   .strat{padding:14px}
   .strat-hdr{flex-direction:column;gap:10px}
   .pt-grid{grid-template-columns:1fr 1fr;gap:8px}
@@ -458,38 +506,50 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
   .r-txt{font-size:11px}
   .sp-pt{font-size:11px}
 
-  /* === NEWS === */
+  /* ===== NEWS ===== */
   .ni{padding:9px 0}
   .nt{font-size:12px}
 
-  /* === CARDS === */
+  /* ===== CARDS ===== */
   .card{padding:13px;border-radius:var(--r12)}
   .card-sm{padding:11px}
   .ct{font-size:9px;margin-bottom:10px}
 
-  /* === MARKET NEWS === */
+  /* ===== MARKET NEWS ===== */
   #mn-grid{grid-template-columns:1fr!important;gap:12px}
   #mn-feed .ni{padding:10px 0}
 
-  /* === FOOTER === */
+  /* ===== FOOTER ===== */
   .footer{font-size:9px;padding:12px;margin-bottom:0}
 
-  /* === PWA BANNER === */
-  #pwa-banner{bottom:68px;width:94%;max-width:94%;padding:10px 12px;border-radius:var(--r12)}
+  /* ===== PWA BANNER ===== */
+  #pwa-banner{
+    bottom:68px!important;
+    width:94%!important;
+    max-width:94%!important;
+    padding:10px 12px!important;
+    border-radius:var(--r12)!important
+  }
 }
 
 /* ── SMALL PHONES (< 400px) ── */
 @media(max-width:400px){
+  .hdr-in{padding:5px 8px;gap:3px}
+  .logo-ico{width:26px;height:26px;font-size:12px}
+  .logo-txt{font-size:10px}
+  .th-btn{padding:4px 6px;min-width:28px}
+  #rbtn{padding:4px 8px;font-size:9px}
+  .live-pill{padding:2px 5px}
   .opp-grid{grid-template-columns:1fr 1fr}
   .wg{grid-template-columns:1fr 1fr}
   .etf-g{grid-template-columns:1fr 1fr}
   .pt-grid{grid-template-columns:1fr 1fr}
-  .main{padding:10px 10px 72px 10px}
-  .hdr-in{padding:6px 10px}
-  .sotd-name{font-size:16px}
-  .d-price{font-size:22px}
-  .tab span:first-child{font-size:18px}
-  .tab span:last-child{font-size:8px}
+  .main{padding:10px 10px 74px 10px}
+  .sotd-name{font-size:15px}
+  .d-price{font-size:20px}
+  .tab span:first-child{font-size:16px}
+  .tab span:last-child{font-size:7px}
+  .ac-wrap{min-width:90px;max-width:90px;flex:0 0 90px}
 }
 </style>
 </head>
@@ -519,7 +579,7 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
           <div class="th-row" onclick="setTh('slate','Slate')"><span class="th-sw" style="background:linear-gradient(135deg,#475569,#6366f1);border:1px solid #e2e8f0"></span>Slate Pro</div>
         </div>
       </div>
-      <button class="btn btn-sec" onclick="goPage('commodities')" id="comm-hdr-btn" style="display:none" onmouseenter="this.style.display='inline-flex'" >🏅 Commodities</button>
+      <button class="btn btn-sec" onclick="goPage('commodities')" id="comm-hdr-btn" style="display:none">🏅 Commodities</button>
       <button class="btn btn-pri" id="rbtn" onclick="boot()">⟳ Refresh</button>
     </div>
   </div>
@@ -570,7 +630,7 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
       <button class="fb" onclick="setF('hvol',this)">🔥 High Vol</button>
       <div class="ac-wrap">
         <span class="ac-ico">🔍</span>
-        <input class="ac-inp" id="q" type="text" placeholder="Search NSE stocks…" oninput="filterSrch(this.value)" autocomplete="off">
+        <input class="ac-inp" id="q" type="text" placeholder="Search…" oninput="filterSrch(this.value)" autocomplete="off">
         <div class="drop" id="q-drop"></div>
       </div>
     </div>
@@ -642,7 +702,6 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
     <div class="card" id="comm-ai"><div class="lm">Generating…</div></div>
   </div>
 
-
   <!-- MARKET NEWS PAGE -->
   <div class="pg" id="pg-market-news">
     <div id="mn-status" style="margin-bottom:16px"></div>
@@ -668,12 +727,9 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
 </div>
 
 <script>
-// Auto-detect backend URL:
-// - On localhost → use localhost:8000 (laptop dev)
-// - On cloud/mobile → use same origin (Render deployment)
 const BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ? 'http://localhost:8000'
-  : '';  // Same origin on Render — no CORS needed
+  : '';
 let SL = ['RELIANCE','TCS','REDINGTON'];
 let SD = {}, CD = {}, CCH = null, AF = 'all', CUR = 'gold';
 let cdv = 300, cdt = null, busy = false;
@@ -681,7 +737,6 @@ let acT = null, addT = null;
 
 try { SL = JSON.parse(localStorage.getItem('imd_sl') || JSON.stringify(SL)); } catch{}
 
-// ── FAST FETCH with manual AbortController ──────────────────────────────────
 async function api(path, ms=14000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
@@ -700,7 +755,6 @@ async function api(path, ms=14000) {
   }
 }
 
-// ── HELPERS ──────────────────────────────────────────────────────────────────
 const bdg = r => `<span class="bdg ${r==='BUY'?'b-b':r==='AVOID'?'b-s':'b-h'}">${r}</span>`;
 const spl = s => `<span class="spl ${s==='Bullish'?'spl-b':s==='Bearish'?'spl-s':'spl-n'}">${s||'Neutral'}</span>`;
 const cbar = c => { const col=c>=70?'var(--buy)':c>=50?'var(--hold)':'var(--sell)'; return `<div class="cbar"><div class="ctr"><div class="cfi" style="width:${c}%;background:${col}"></div></div><span class="cvl">${c}%</span></div>`; };
@@ -712,10 +766,9 @@ const setSB = (cls, msg) => { const b=document.getElementById('sb'); b.className
 const setTS = () => { document.getElementById('ts').textContent = 'PRO · Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' IST'; };
 const saveL = () => { try { localStorage.setItem('imd_sl', JSON.stringify(SL)); } catch{} };
 const showErr = m => { const e=document.getElementById('err-msg'); e.style.display='block'; e.textContent=m; setTimeout(()=>e.style.display='none', 6000); };
-const setBtn = d => { const b=document.getElementById('rbtn'); b.disabled=d; b.textContent=d?'⏳ Loading…':'⟳ Refresh'; };
+const setBtn = d => { const b=document.getElementById('rbtn'); b.disabled=d; b.textContent=d?'⏳':'⟳ Refresh'; };
 const thCol = {'s':'text-align:left;padding:10px 14px;font-size:9px;font-weight:700;letter-spacing:.8px;color:var(--t3);background:var(--bg2);border-bottom:1px solid var(--bdr);font-family:var(--fm);text-transform:uppercase'};
 
-// ── THEME ────────────────────────────────────────────────────────────────────
 function toggleTh() { document.getElementById('th-menu').classList.toggle('show'); }
 function setTh(t, l) {
   document.documentElement.setAttribute('data-theme', t);
@@ -726,7 +779,6 @@ function setTh(t, l) {
 try { const s=localStorage.getItem('imd_th'); if(s){const[t,l]=s.split(':'); setTh(t,l);} } catch{}
 document.addEventListener('click', e => { if(!e.target.closest('.th-wrap')) document.getElementById('th-menu').classList.remove('show'); });
 
-// ── PAGES ────────────────────────────────────────────────────────────────────
 function goPage(n) {
   document.querySelectorAll('.pg').forEach(p => p.classList.remove('on'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
@@ -741,7 +793,6 @@ function goPage(n) {
   closeDrops();
 }
 
-// ── AUTOCOMPLETE ─────────────────────────────────────────────────────────────
 function acSrch(q) {
   clearTimeout(addT);
   const d = document.getElementById('add-drop');
@@ -784,7 +835,6 @@ function closeDrops() {
   document.getElementById('add-drop')?.classList.remove('show');
 }
 
-// ── SCANNER ──────────────────────────────────────────────────────────────────
 async function runScan() {
   const btn = document.getElementById('scan-btn');
   const out = document.getElementById('scan-out');
@@ -820,7 +870,6 @@ async function runScan() {
   btn.disabled = false; btn.textContent = '⟳ Scan Now';
 }
 
-// ── STOCK OF DAY ──────────────────────────────────────────────────────────────
 function showSOTD() {
   const stocks = Object.values(SD).filter(d => d?.status === 'ok');
   if (!stocks.length) { document.getElementById('sotd-wrap').innerHTML = ''; return; }
@@ -849,7 +898,7 @@ function showSOTD() {
       <div class="sotd-price">₹${best.price.toFixed(2)} &nbsp;<span class="${cl}">${best.changePct>=0?'+':''}${best.changePct}%</span></div>
       <div style="margin-top:11px">${(best.reasons||[]).map(r=>`<div class="sotd-reason">${r}</div>`).join('')}</div>
     </div>
-    <div style="text-align:right;position:relative;z-index:1">
+    <div style="position:relative;z-index:1">
       <div class="sotd-conf">${best.confidence}%</div>
       <div style="font-size:9px;font-family:var(--fm);color:var(--t3);letter-spacing:1px;margin-top:2px">AI CONFIDENCE</div>
       <div style="display:inline-block;padding:6px 20px;border-radius:var(--r8);font-size:13px;font-weight:700;font-family:var(--fm);margin-top:8px;${rc}">${best.recommendation}</div>
@@ -859,7 +908,6 @@ function showSOTD() {
   </div>`;
 }
 
-// ── LOAD STOCKS (streaming — each row appears immediately) ────────────────────
 function renderTbl() {
   const tb = document.getElementById('stb');
   if (!SL.length) { tb.innerHTML = '<tr><td colspan="9" class="lm">No stocks. Add some above.</td></tr>'; return; }
@@ -913,7 +961,7 @@ function updateRow(sym, d) {
 
 async function loadStocks() {
   if (!SL.length) { renderTbl(); renderWL(); return; }
-  renderTbl(); // show skeletons immediately
+  renderTbl();
   let done = 0;
   await Promise.allSettled(SL.map(async sym => {
     try {
@@ -930,7 +978,6 @@ async function loadStocks() {
   renderWL();
 }
 
-// ── FILTERS ──────────────────────────────────────────────────────────────────
 function applyF() {
   const q = document.getElementById('q').value.toLowerCase();
   document.querySelectorAll('#stb tr[data-s]').forEach(r => {
@@ -948,7 +995,6 @@ function applyF() {
 }
 function setF(f, btn) { AF=f; document.querySelectorAll('.fb').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); applyF(); }
 
-// ── WATCHLIST ────────────────────────────────────────────────────────────────
 function renderWL() {
   const g = document.getElementById('wg');
   if (!SL.length) { g.innerHTML='<div class="lm">No stocks yet.</div>'; return; }
@@ -966,7 +1012,6 @@ function renderWL() {
   }).join('');
 }
 
-// ── ADD / REMOVE ──────────────────────────────────────────────────────────────
 async function addS(sym) {
   const v = (sym || document.getElementById('si').value).trim().toUpperCase().replace(/\.NS|\.BO/gi,'');
   if (!v) return;
@@ -975,7 +1020,7 @@ async function addS(sym) {
   SL.push(v); saveL();
   document.getElementById('si').value = '';
   closeDrops();
-  SD[v] = undefined; // show skeleton
+  SD[v] = undefined;
   renderTbl();
   try {
     const d = await api(`/stock?symbol=${v}&range=30d`);
@@ -986,7 +1031,6 @@ async function addS(sym) {
 function rmS(sym) { SL=SL.filter(x=>x!==sym); delete SD[sym]; saveL(); renderTbl(); renderWL(); }
 function qa(t) { document.getElementById('si').value=t; closeDrops(); addS(t); }
 
-// ── DETAIL PAGE ───────────────────────────────────────────────────────────────
 async function openDet(sym) {
   document.getElementById('tab-detail').style.display = '';
   goPage('detail');
@@ -1052,7 +1096,6 @@ function renderDet(s, news) {
     </div>
   </div>
 
-  <!-- TRADING STRATEGY -->
   <div class="strat">
     <div class="strat-hdr">
       <div>
@@ -1067,7 +1110,6 @@ function renderDet(s, news) {
       </div>
     </div>
 
-    <!-- PRICE TARGETS -->
     <div class="pt-grid">
       <div class="pt" style="background:rgba(0,230,118,.06);border-color:rgba(0,230,118,.2)">
         <div class="pt-l" style="color:var(--buy)">Entry / Buy At</div>
@@ -1101,7 +1143,6 @@ function renderDet(s, news) {
       </div>
     </div>
 
-    <!-- REASONS -->
     <div style="background:rgba(255,255,255,.02);border-radius:var(--r12);padding:14px;border:1px solid var(--bdr)">
       <div style="font-size:9px;font-family:var(--fm);letter-spacing:1.5px;color:var(--t3);text-transform:uppercase;margin-bottom:11px">Why ${s.recommendation||'HOLD'} — Expert Reasoning</div>
       <div class="reason-g">
@@ -1114,53 +1155,26 @@ function renderDet(s, news) {
     </div>
   </div>
 
-  <!-- CHARTS -->
   <div class="dgrid">
     <div class="card"><div class="ct">7-Day Trend</div><div style="position:relative;height:150px"><canvas id="c7"></canvas></div></div>
     <div class="card"><div class="ct">30-Day Trend</div><div style="position:relative;height:150px"><canvas id="c30"></canvas></div></div>
   </div>
 
-  <!-- INDICATORS + NEWS -->
   <div class="dgrid">
     <div class="card">
       <div class="ct">Technical Indicators</div>
       <div class="ig">
-        <div class="ib">
-          <div class="il">RSI (14)</div>
-          <div class="iv" style="color:${(ind.rsi||50)<40?'var(--buy)':(ind.rsi||50)>65?'var(--sell)':'var(--t1)'}">${ind.rsi||'—'}</div>
-          <div class="is">${(ind.rsi||50)<35?'🟢 Deeply Oversold':(ind.rsi||50)<45?'🟢 Oversold':(ind.rsi||50)>75?'🔴 Overbought':(ind.rsi||50)>65?'🟡 High':'⚪ Neutral'}</div>
-        </div>
-        <div class="ib">
-          <div class="il">MACD</div>
-          <div class="iv" style="color:${(ind.macdHist||0)>0?'var(--buy)':'var(--sell)'}">${ind.macd||'—'}</div>
-          <div class="is">${(ind.macdHist||0)>0?'🟢 Bullish':'🔴 Bearish'}</div>
-        </div>
-        <div class="ib">
-          <div class="il">SMA 20</div>
-          <div class="iv fv2" style="color:var(--t1)">₹${ind.sma20||'—'}</div>
-          <div class="is">${ind.sma20?(s.price>ind.sma20?'🟢 Above':'🔴 Below'):'—'}</div>
-        </div>
-        <div class="ib">
-          <div class="il">SMA 50</div>
-          <div class="iv fv2" style="color:var(--t1)">₹${ind.sma50||'—'}</div>
-          <div class="is">${ind.sma50?(s.price>ind.sma50?'🟢 Uptrend':'🔴 Downtrend'):'—'}</div>
-        </div>
-        <div class="ib">
-          <div class="il">EMA 9</div>
-          <div class="iv fv2" style="color:var(--t1)">₹${ind.ema9||'—'}</div>
-          <div class="is">${ind.ema9?(s.price>ind.ema9?'Above EMA9':'Below EMA9'):'Short-term'}</div>
-        </div>
-        <div class="ib">
-          <div class="il">Volume</div>
-          <div class="iv" style="color:${ind.volumeSignal==='high'?'var(--hold)':ind.volumeSignal==='low'?'var(--sell)':'var(--t1)'}">${fv(s.volume)}</div>
-          <div class="is">${ind.volumeSignal==='high'?'🔥 Spike':'Normal'}</div>
-        </div>
+        <div class="ib"><div class="il">RSI (14)</div><div class="iv" style="color:${(ind.rsi||50)<40?'var(--buy)':(ind.rsi||50)>65?'var(--sell)':'var(--t1)'}">${ind.rsi||'—'}</div><div class="is">${(ind.rsi||50)<35?'🟢 Deeply Oversold':(ind.rsi||50)<45?'🟢 Oversold':(ind.rsi||50)>75?'🔴 Overbought':(ind.rsi||50)>65?'🟡 High':'⚪ Neutral'}</div></div>
+        <div class="ib"><div class="il">MACD</div><div class="iv" style="color:${(ind.macdHist||0)>0?'var(--buy)':'var(--sell)'}">${ind.macd||'—'}</div><div class="is">${(ind.macdHist||0)>0?'🟢 Bullish':'🔴 Bearish'}</div></div>
+        <div class="ib"><div class="il">SMA 20</div><div class="iv fv2" style="color:var(--t1)">₹${ind.sma20||'—'}</div><div class="is">${ind.sma20?(s.price>ind.sma20?'🟢 Above':'🔴 Below'):'—'}</div></div>
+        <div class="ib"><div class="il">SMA 50</div><div class="iv fv2" style="color:var(--t1)">₹${ind.sma50||'—'}</div><div class="is">${ind.sma50?(s.price>ind.sma50?'🟢 Uptrend':'🔴 Downtrend'):'—'}</div></div>
+        <div class="ib"><div class="il">EMA 9</div><div class="iv fv2" style="color:var(--t1)">₹${ind.ema9||'—'}</div><div class="is">${ind.ema9?(s.price>ind.ema9?'Above EMA9':'Below EMA9'):'Short-term'}</div></div>
+        <div class="ib"><div class="il">Volume</div><div class="iv" style="color:${ind.volumeSignal==='high'?'var(--hold)':ind.volumeSignal==='low'?'var(--sell)':'var(--t1)'}">${fv(s.volume)}</div><div class="is">${ind.volumeSignal==='high'?'🔥 Spike':'Normal'}</div></div>
       </div>
       <div style="margin-top:13px"><div class="ct" style="margin-bottom:7px">Support & Resistance</div>${srb||'<div style="font-size:11px;color:var(--t3);padding:5px 0">Need 20+ days data</div>'}</div>
     </div>
 
     <div>
-      <!-- NEWS -->
       <div class="card" style="margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:11px">
           <div class="ct" style="margin-bottom:0">Latest News</div>
@@ -1187,15 +1201,14 @@ function renderDet(s, news) {
           }).join('')}
           <div style="margin-top:12px;padding:10px 12px;background:var(--bg2);border-radius:var(--r8);border:1px solid var(--bdr);font-size:11px;color:var(--t2);line-height:1.7">
             <b style="color:${newsCol}">News Impact on Trade:</b> ${pN.length>nN.length
-              ?`${pN.length} positive vs ${nN.length} negative headlines. News flow supports ${s.recommendation} call. High-impact news (earnings, results, upgrades) carry more weight.`
+              ?`${pN.length} positive vs ${nN.length} negative headlines. News flow supports ${s.recommendation} call.`
               :nN.length>pN.length
-              ?`${nN.length} negative vs ${pN.length} positive. Adverse news flow — tighten stop-loss and reduce position size.`
+              ?`${nN.length} negative vs ${pN.length} positive. Adverse news flow — tighten stop-loss.`
               :'Mixed news sentiment. Focus on technical levels rather than news alone.'}
           </div>`
         }
       </div>
 
-      <!-- TRADE SUMMARY -->
       <div class="card-sm">
         <div style="font-size:9px;font-family:var(--fm);letter-spacing:1.5px;color:var(--t3);text-transform:uppercase;margin-bottom:11px">Trade Summary</div>
         ${[
@@ -1232,7 +1245,6 @@ function mkChart(id, hist, col) {
   });
 }
 
-// ── COMMODITIES ───────────────────────────────────────────────────────────────
 async function loadComm() {
   Promise.all([loadCommPrices(), loadFutures(), loadETFs()]);
 }
@@ -1257,8 +1269,6 @@ async function loadCommPrices() {
       }
     ];
     let ch = '', arRows = '', sumPts = [];
-
-    // Build arb table header
     const thS = 'text-align:left;padding:10px 14px;font-size:9px;font-weight:700;letter-spacing:.8px;color:var(--t3);background:var(--bg2);border-bottom:1px solid var(--bdr);font-family:var(--fm);text-transform:uppercase';
     document.getElementById('arb-hdr').innerHTML = ['Asset','Intl (USD)','Change','MCX Est.','Spread','Arb Signal','2-3 Day Call'].map(h=>`<th style="${thS}">${h}</th>`).join('');
 
@@ -1275,18 +1285,10 @@ async function loadCommPrices() {
       else if (spread>8) { rec='BUY'; rsn=`MCX premium ${spread.toFixed(1)}% — arb opportunity.`; }
       else { rec='HOLD'; rsn='Sideways. Watch for breakout.'; }
 
-      // Extra copper-specific data
       const isCopper = c.id === 'copper';
-      const lotSize = c.id==='gold' ? 100 : c.id==='silver' ? 30000 : 2500; // grams / grams / grams
-      const lotUnit = c.id==='gold' ? '100g' : c.id==='silver' ? '30kg' : '2500kg';
-      const lotVal  = c.id==='gold' ? Math.round(mcx*10)
-                    : c.id==='silver' ? Math.round(mcx*30)
-                    : Math.round(mcx*2500);
       const copperExtra = isCopper ? `
         <div class="srow" style="margin-top:8px"><span style="color:var(--t3)">MCX Lot Size</span><span style="color:var(--t1);font-family:var(--fm)">2,500 kg</span></div>
-        <div class="srow"><span style="color:var(--t3)">Approx Lot Value</span><span style="color:#818cf8;font-family:var(--fm)">₹${Math.round(mcx*2500).toLocaleString('en-IN')}</span></div>
         <div class="srow"><span style="color:var(--t3)">MCX ₹/kg</span><span style="color:var(--buy);font-family:var(--fm)">₹${Math.round(mcx).toLocaleString('en-IN')}</span></div>
-        <div class="srow"><span style="color:var(--t3)">MCX ₹/tonne</span><span style="color:var(--t1);font-family:var(--fm)">₹${Math.round(mcx*1000).toLocaleString('en-IN')}</span></div>
       ` : '';
 
       ch += `<div class="cc ${c.css}">
@@ -1352,10 +1354,7 @@ async function loadFutures() {
       const col = colMap[k]||'var(--acc)';
       const lotVal = d.mcx_lot_value ? `₹${Math.round(d.mcx_lot_value/1000)}K` : '—';
       return `<div class="fut-c" style="border-top:2px solid ${col}">
-        <div class="fut-title">
-          <span style="color:var(--t1)">${d.name} Futures</span>
-          <span class="${cl} fv2" style="font-size:12px">${d.change>=0?'+':''}${(d.change_pct||0).toFixed(2)}%</span>
-        </div>
+        <div class="fut-title"><span style="color:var(--t1)">${d.name} Futures</span><span class="${cl} fv2" style="font-size:12px">${d.change>=0?'+':''}${(d.change_pct||0).toFixed(2)}%</span></div>
         <div style="font-size:9px;font-family:var(--fm);color:var(--t3);margin-bottom:8px">${d.exchange||'MCX'}</div>
         <div class="fut-row"><span class="fl">Intl Spot</span><span class="fv">$${(d.spot_usd||0).toFixed(2)}/${d.intl_unit}</span></div>
         <div class="fut-row"><span class="fl">Near Month</span><span class="fv" style="color:${col}">$${(d.near_usd||0).toFixed(2)}</span></div>
@@ -1417,8 +1416,6 @@ async function loadCommChart(com) {
 }
 function swComm(c, btn) { document.querySelectorAll('.ctab').forEach(t=>t.classList.remove('on')); btn.classList.add('on'); loadCommChart(c); }
 
-
-// ── MARKET NEWS PAGE ─────────────────────────────────────────────────────────
 let MN_LOADED = false;
 async function loadMarketNews(force=false) {
   if (MN_LOADED && !force) return;
@@ -1433,7 +1430,6 @@ async function loadMarketNews(force=false) {
     const sum  = data.summary || {};
     MN_LOADED = true;
 
-    // Render feed grouped by category
     const cats = {};
     news.forEach(n => { const c = n.category||'Market'; if (!cats[c]) cats[c] = []; cats[c].push(n); });
 
@@ -1473,7 +1469,6 @@ async function loadMarketNews(force=false) {
       </div>
       ${feedHTML}`;
 
-    // AI Summary sidebar
     const toneCol = sum.tone==='Bullish'?'var(--buy)':sum.tone==='Bearish'?'var(--sell)':'var(--hold)';
     const toneIco = sum.tone==='Bullish'?'📈':sum.tone==='Bearish'?'📉':'➡️';
     sumDiv.innerHTML = `
@@ -1492,11 +1487,7 @@ async function loadMarketNews(force=false) {
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--bdr)">
         <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);font-family:var(--fm);margin-bottom:9px">What This Means</div>
         <div style="font-size:12px;color:var(--t2);line-height:1.8">
-          ${sum.tone==='Bullish'
-            ? 'More positive news than negative today. Market sentiment is favourable. Look for BUY signals in your watchlist. Consider adding exposure.'
-            : sum.tone==='Bearish'
-            ? 'More negative news today. Market under pressure. Tighten stop-losses. Avoid fresh buying. Wait for trend to stabilise.'
-            : 'Mixed market signals. No clear directional bias. Focus on individual stock technicals rather than overall market direction.'}
+          ${sum.tone==='Bullish'?'More positive news than negative today. Market sentiment is favourable. Look for BUY signals in your watchlist.':sum.tone==='Bearish'?'More negative news today. Tighten stop-losses. Avoid fresh buying.':'Mixed market signals. Focus on individual stock technicals.'}
         </div>
       </div>
       <div style="margin-top:12px;padding:9px;background:var(--bg2);border-radius:var(--r8);font-size:10px;font-family:var(--fm);color:var(--t3)">
@@ -1508,19 +1499,17 @@ async function loadMarketNews(force=false) {
   }
 }
 
-// ── COUNTDOWN ────────────────────────────────────────────────────────────────
 function startCd() {
   if (cdt) clearInterval(cdt);
   cdv = 300;
   cdt = setInterval(() => {
     cdv--;
     const m = Math.floor(cdv/60), s = cdv%60;
-    document.getElementById('cd').textContent = `Refresh: ${m}:${s.toString().padStart(2,'0')}`;
+    document.getElementById('cd').textContent = `${m}:${s.toString().padStart(2,'0')}`;
     if (cdv <= 0) boot();
   }, 1000);
 }
 
-// ── BOOT ─────────────────────────────────────────────────────────────────────
 async function boot() {
   if (busy) return;
   busy = true; setBtn(true); startCd();
@@ -1534,32 +1523,31 @@ async function boot() {
       document.getElementById('warn').style.display = 'block';
       busy = false; setBtn(false); return;
     }
-    // Connected — release immediately
     busy = false; setBtn(false);
-    setSB('sb-load', `✅ Connected — loading ${SL.length} stocks (rows appear one by one)…`);
+    setSB('sb-load', `✅ Connected — loading ${SL.length} stocks…`);
 
     loadStocks().then(() => {
       const ok = Object.values(SD).filter(x => x?.status === 'ok').length;
       setSB(ok > 0 ? 'sb-ok' : 'sb-err',
         ok > 0
-          ? `✅ ${ok}/${SL.length} stocks loaded · 5-min cache active · Theme: top-right 🎨 · Auto-refresh 5 min`
-          : `⚠️ ${ok}/${SL.length} loaded. Yahoo Finance may be rate-limiting — wait 30s and click Refresh.`
+          ? `✅ ${ok}/${SL.length} stocks loaded · 5-min cache active · Theme: 🎨 · Auto-refresh 5 min`
+          : `⚠️ ${ok}/${SL.length} loaded. Yahoo Finance may be rate-limiting — wait 30s and Refresh.`
       );
       setTS();
     });
 
   } catch(e) {
-    setSB('sb-err', `❌ Cannot reach localhost:8000 — is python server.py running? (${e.message})`);
+    setSB('sb-err', `❌ Cannot reach server — is python server.py running? (${e.message})`);
     document.getElementById('warn').style.display = 'block';
     busy = false; setBtn(false);
   }
 }
 
-// ── START ─────────────────────────────────────────────────────────────────────
 renderTbl();
 boot();
 </script>
-<div id="pwa-banner" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#1e293b,#0f1826);border:1px solid rgba(59,130,246,.4);border-radius:16px;padding:12px 20px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);display:flex;align-items:center;gap:14px;max-width:340px;width:90%">
+
+<div id="pwa-banner" style="display:none;position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#1e293b,#0f1826);border:1px solid rgba(59,130,246,.4);border-radius:16px;padding:12px 20px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.6);align-items:center;gap:14px;max-width:340px;width:90%">
   <div style="font-size:28px">📊</div>
   <div style="flex:1">
     <div style="font-size:13px;font-weight:700;color:#f1f5f9">Install Market Dashboard</div>
@@ -1569,40 +1557,30 @@ boot();
   <button onclick="document.getElementById('pwa-banner').style.display='none'" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:18px;padding:0 4px">✕</button>
 </div>
 <script>
-// ── SERVICE WORKER + PWA INSTALL ─────────────────────────────────────────────
 let deferredPrompt = null;
-
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
-      .then(r => console.log('SW registered:', r.scope))
-      .catch(e => console.log('SW error:', e));
+    navigator.serviceWorker.register('/sw.js').catch(e => console.log('SW error:', e));
   });
 }
-
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   deferredPrompt = e;
-  // Show install banner after 3 seconds
   setTimeout(() => {
     const banner = document.getElementById('pwa-banner');
     if (banner) banner.style.display = 'flex';
   }, 3000);
 });
-
 function installPWA() {
   if (!deferredPrompt) return;
   deferredPrompt.prompt();
   deferredPrompt.userChoice.then(r => {
-    console.log('PWA install:', r.outcome);
     deferredPrompt = null;
     document.getElementById('pwa-banner').style.display = 'none';
   });
 }
-
 window.addEventListener('appinstalled', () => {
   document.getElementById('pwa-banner').style.display = 'none';
-  console.log('PWA installed!');
 });
 </script>
 </body>
