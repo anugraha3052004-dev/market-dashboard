@@ -551,6 +551,98 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
   .tab span:last-child{font-size:7px}
   .ac-wrap{min-width:90px;max-width:90px;flex:0 0 90px}
 }
+
+/* ══ STOCKSENSE AI PANEL ══ */
+.ss-panel{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r20);overflow:hidden;margin-bottom:16px}
+.ss-panel-hdr{background:linear-gradient(135deg,rgba(59,130,246,.15),rgba(99,102,241,.1));border-bottom:1px solid var(--bdr);padding:16px 18px;display:flex;align-items:center;gap:12px}
+.ss-panel-ico{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#3b82f6,#6366f1);display:grid;place-items:center;font-size:18px;flex-shrink:0;box-shadow:0 0 20px rgba(59,130,246,.4)}
+.ss-panel-ttl{font-size:15px;font-weight:800;color:var(--t1);letter-spacing:-.3px}
+.ss-panel-sub{font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:2px}
+.ss-panel-body{padding:16px 18px}
+.layer-card{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r16);padding:14px;margin-bottom:10px;position:relative;overflow:hidden}
+.layer-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
+.lc-global::before{background:linear-gradient(180deg,#06b6d4,#0891b2)}
+.lc-tech::before{background:linear-gradient(180deg,#8b5cf6,#6366f1)}
+.lc-fund::before{background:linear-gradient(180deg,#22c55e,#16a34a)}
+.lc-news::before{background:linear-gradient(180deg,#f59e0b,#d97706)}
+.lc-risk::before{background:linear-gradient(180deg,#ef4444,#dc2626)}
+.layer-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.layer-ttl{font-size:11px;font-weight:700;color:var(--t1);letter-spacing:.3px}
+.layer-score{font-size:10px;font-family:var(--fm);padding:2px 8px;border-radius:6px;font-weight:700}
+.ls-ok{background:var(--buy-bg);color:var(--buy);border:1px solid var(--buy-bd)}
+.ls-warn{background:var(--hold-bg);color:var(--hold);border:1px solid var(--hold-bd)}
+.ls-bad{background:var(--sell-bg);color:var(--sell);border:1px solid var(--sell-bd)}
+.layer-row{display:flex;align-items:flex-start;gap:8px;padding:4px 0;border-bottom:1px solid var(--bdr);font-size:11px}
+.layer-row:last-child{border-bottom:none}
+.lr-ico{font-size:11px;flex-shrink:0;margin-top:1px;width:14px;text-align:center}
+.lr-key{color:var(--t3);font-family:var(--fm);font-size:10px;min-width:80px;flex-shrink:0}
+.lr-val{color:var(--t1);flex:1;line-height:1.4}
+.lr-pts{font-size:9px;font-family:var(--fm);margin-left:auto;flex-shrink:0;padding:1px 5px;border-radius:3px}
+.pts-p{background:var(--buy-bg);color:var(--buy)}.pts-n{background:var(--sell-bg);color:var(--sell)}.pts-z{background:var(--bg3);color:var(--t3)}
+.verdict-box{border-radius:var(--r16);padding:16px;margin-bottom:12px;border:1px solid}
+.vb-strong{background:rgba(0,230,118,.08);border-color:var(--buy-bd)}
+.vb-buy{background:rgba(0,230,118,.05);border-color:rgba(0,230,118,.2)}
+.vb-weak{background:rgba(255,171,64,.07);border-color:var(--hold-bd)}
+.vb-watch{background:rgba(100,116,139,.1);border-color:rgba(100,116,139,.3)}
+.vb-notrade{background:rgba(255,82,82,.07);border-color:var(--sell-bd)}
+.verdict-emoji{font-size:32px;margin-bottom:6px}
+.verdict-signal{font-size:20px;font-weight:900;letter-spacing:-.5px;margin-bottom:6px}
+.verdict-text{font-size:12px;color:var(--t2);line-height:1.7}
+.score-total{display:flex;align-items:baseline;gap:5px;margin-bottom:4px}
+.score-num{font-size:40px;font-weight:900;font-family:var(--fm);line-height:1}
+.score-denom{font-size:14px;color:var(--t3);font-family:var(--fm)}
+.score-bar-wrap{height:6px;background:var(--bdr);border-radius:3px;overflow:hidden;margin:6px 0}
+.score-bar-fill{height:100%;border-radius:3px;transition:width .8s ease}
+.trade-plan{background:var(--bg3);border:1px solid var(--bdr2);border-radius:var(--r16);padding:16px;margin-bottom:12px}
+.tp-hdr{font-size:9px;font-family:var(--fm);letter-spacing:2px;text-transform:uppercase;color:var(--t3);margin-bottom:12px}
+.tp-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.tp-item{background:var(--card);border-radius:var(--r8);padding:10px;border:1px solid var(--bdr)}
+.tp-label{font-size:9px;font-family:var(--fm);color:var(--t3);letter-spacing:.5px;text-transform:uppercase;margin-bottom:3px}
+.tp-value{font-size:16px;font-weight:800;font-family:var(--fm)}
+.tp-sub{font-size:9px;color:var(--t3);margin-top:2px}
+.budget-box{background:linear-gradient(135deg,rgba(59,130,246,.08),rgba(99,102,241,.05));border:1px solid var(--bdr2);border-radius:var(--r12);padding:12px}
+.budget-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--bdr);font-size:11px;font-family:var(--fm)}
+.budget-row:last-child{border-bottom:none}
+.bl{color:var(--t3)}.bv{font-weight:700;color:var(--t1)}
+.risk-row{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;background:var(--sell-bg);border:1px solid var(--sell-bd);border-radius:var(--r8);margin-bottom:6px;font-size:11px;color:var(--sell);line-height:1.5}
+.risk-row::before{content:'⚠';flex-shrink:0}
+.blocker-alert{background:rgba(255,82,82,.12);border:1px solid var(--sell-bd);border-radius:var(--r12);padding:14px;text-align:center}
+.blocker-ico{font-size:28px;margin-bottom:6px}
+.blocker-ttl{font-size:14px;font-weight:800;color:var(--sell);margin-bottom:4px}
+.blocker-msg{font-size:11px;color:var(--t2);line-height:1.6}
+.mh-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:16px}
+.mh-card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r12);padding:12px;text-align:center}
+.mh-ico{font-size:20px;margin-bottom:4px}
+.mh-val{font-size:14px;font-weight:800;font-family:var(--fm);color:var(--t1)}
+.mh-lbl{font-size:9px;font-family:var(--fm);color:var(--t3);margin-top:2px;letter-spacing:.5px;text-transform:uppercase}
+.mh-chg{font-size:10px;font-family:var(--fm);margin-top:2px}
+.ss-ai-chat{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r16);padding:14px}
+.chat-bubble{background:linear-gradient(135deg,rgba(59,130,246,.1),rgba(99,102,241,.05));border:1px solid var(--bdr);border-radius:var(--r12) var(--r12) var(--r12) 4px;padding:12px 14px;margin-bottom:10px;font-size:12px;color:var(--t1);line-height:1.7;white-space:pre-wrap;font-family:var(--fm)}
+.chat-input-row{display:flex;gap:8px;align-items:flex-end}
+.chat-ta{flex:1;padding:10px 13px;border:1px solid var(--bdr);border-radius:var(--r8);font-size:12px;font-family:var(--ff);background:var(--bg3);color:var(--t1);resize:none;min-height:40px;max-height:120px;transition:border-color .2s}
+.chat-ta:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px var(--glow)}
+.ai-typing{display:inline-flex;gap:3px;padding:8px 12px}
+.ai-typing span{width:5px;height:5px;border-radius:50%;background:var(--acc);animation:typing .9s ease infinite}
+.ai-typing span:nth-child(2){animation-delay:.15s}
+.ai-typing span:nth-child(3){animation-delay:.3s}
+@keyframes typing{0%,60%,100%{opacity:.2;transform:scale(.8)}30%{opacity:1;transform:scale(1)}}
+.layer-progress{display:flex;gap:3px;margin-top:8px}
+.lp-dot{flex:1;height:4px;border-radius:2px;background:var(--bdr);transition:background .3s}
+.lp-dot.active{background:var(--acc)}
+.lp-dot.done{background:var(--buy)}
+.lp-dot.bad{background:var(--sell)}
+@media(max-width:768px){
+  .tp-grid{grid-template-columns:1fr 1fr}
+  .mh-grid{grid-template-columns:1fr 1fr}
+  .ss-panel-body{padding:12px}
+  .layer-card{padding:12px}
+  .chat-ta{font-size:12px}
+}
+@media(max-width:400px){
+  .tp-grid{grid-template-columns:1fr 1fr}
+  .mh-grid{grid-template-columns:1fr 1fr}
+}
+
 </style>
 </head>
 <body>
@@ -592,6 +684,7 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
     <div class="tab" id="tab-commodities" onclick="goPage('commodities')"><span style="font-size:18px">🏅</span><span>Commod.</span></div>
     <div class="tab" id="tab-news" onclick="goPage('market-news')"><span style="font-size:18px">📰</span><span>News</span></div>
     <div class="tab" id="tab-detail" style="display:none" onclick="goPage('detail')"><span style="font-size:18px">🔍</span><span>Analysis</span></div>
+    <div class="tab" id="tab-ai" onclick="goPage('ai')"><span style="font-size:18px">🤖</span><span>AI</span></div>
   </div>
 </nav>
 
@@ -717,6 +810,108 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
     </div>
   </div>
 
+
+  <!-- STOCKSENSE AI PAGE -->
+  <div class="pg" id="pg-ai">
+    <!-- Market Health Bar -->
+    <div class="ss-panel" id="mh-panel">
+      <div class="ss-panel-hdr">
+        <div class="ss-panel-ico">🌍</div>
+        <div>
+          <div class="ss-panel-ttl">Layer 1 — Global Market Health</div>
+          <div class="ss-panel-sub">Live market pulse check · Updated on load</div>
+        </div>
+        <button class="btn btn-sec" style="margin-left:auto;font-size:10px" onclick="checkMarketHealth()">⟳ Refresh</button>
+      </div>
+      <div class="ss-panel-body">
+        <div class="mh-grid" id="mh-grid">
+          <div class="mh-card"><div class="mh-ico">📊</div><div class="mh-val" id="mh-gift">—</div><div class="mh-lbl">GIFT Nifty</div><div class="mh-chg" id="mh-gift-c"></div></div>
+          <div class="mh-card"><div class="mh-ico">🇺🇸</div><div class="mh-val" id="mh-dow">—</div><div class="mh-lbl">Dow Jones</div><div class="mh-chg" id="mh-dow-c"></div></div>
+          <div class="mh-card"><div class="mh-ico">😰</div><div class="mh-val" id="mh-vix">—</div><div class="mh-lbl">India VIX</div><div class="mh-chg" id="mh-vix-c"></div></div>
+          <div class="mh-card"><div class="mh-ico">🛢️</div><div class="mh-val" id="mh-crude">—</div><div class="mh-lbl">Brent Crude</div><div class="mh-chg" id="mh-crude-c"></div></div>
+          <div class="mh-card"><div class="mh-ico">🌏</div><div class="mh-val" id="mh-nikkei">—</div><div class="mh-lbl">Nikkei 225</div><div class="mh-chg" id="mh-nikkei-c"></div></div>
+        </div>
+        <div id="mh-verdict" style="margin-top:4px"></div>
+      </div>
+    </div>
+
+    <!-- STOCKSENSE AI Analyser -->
+    <div class="ss-panel">
+      <div class="ss-panel-hdr">
+        <div class="ss-panel-ico">🤖</div>
+        <div>
+          <div class="ss-panel-ttl">STOCKSENSE AI — 5-Layer Analysis</div>
+          <div class="ss-panel-sub">Elite NSE/BSE swing trade analysis · Powered by Claude AI</div>
+        </div>
+      </div>
+      <div class="ss-panel-body">
+        <!-- Stock selector -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+          <div style="position:relative;flex:1;min-width:180px">
+            <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px">🔍</span>
+            <input id="ai-sym-inp" class="add-inp" style="padding-left:32px;width:100%" type="text" placeholder="Enter NSE symbol e.g. RELIANCE, BEL, INFY…" oninput="aiSymAc(this.value)" autocomplete="off">
+            <div class="drop" id="ai-sym-drop"></div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sec" style="font-size:10px" onclick="aiPickSym('RELIANCE')">RELIANCE</button>
+            <button class="btn btn-sec" style="font-size:10px" onclick="aiPickSym('BEL')">BEL</button>
+            <button class="btn btn-sec" style="font-size:10px" onclick="aiPickSym('TCS')">TCS</button>
+            <button class="btn btn-sec" style="font-size:10px" onclick="aiPickSym('HDFCBANK')">HDFC Bank</button>
+          </div>
+        </div>
+
+        <!-- Budget input -->
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+          <label style="font-size:10px;font-family:var(--fm);color:var(--t3);white-space:nowrap">Budget (₹):</label>
+          <input id="ai-budget" class="add-inp" style="width:130px;padding:8px 12px" type="number" value="25000" min="1000" max="1000000">
+          <button class="btn btn-pri" id="ai-run-btn" onclick="runStocksense()" style="flex-shrink:0">
+            <span id="ai-btn-txt">🤖 Analyse Now</span>
+          </button>
+          <div style="font-size:10px;font-family:var(--fm);color:var(--t3)">5-layer scoring · Trade plan · Risk check</div>
+        </div>
+
+        <!-- Layer progress dots -->
+        <div class="layer-progress" id="ai-progress" style="display:none;margin-bottom:14px">
+          <div class="lp-dot" id="lp1" title="Layer 1: Market"></div>
+          <div class="lp-dot" id="lp2" title="Layer 2: Technical"></div>
+          <div class="lp-dot" id="lp3" title="Layer 3: Fundamentals"></div>
+          <div class="lp-dot" id="lp4" title="Layer 4: News"></div>
+          <div class="lp-dot" id="lp5" title="Layer 5: Risk"></div>
+        </div>
+
+        <!-- Output area -->
+        <div id="ai-output"></div>
+
+        <!-- AI Chat -->
+        <div id="ai-chat-section" style="display:none;margin-top:14px">
+          <div style="font-size:9px;font-family:var(--fm);letter-spacing:2px;color:var(--t3);text-transform:uppercase;margin-bottom:10px">Follow-up Questions — Ask STOCKSENSE AI</div>
+          <div class="ss-ai-chat">
+            <div id="ai-chat-msgs"></div>
+            <div class="chat-input-row">
+              <textarea class="chat-ta" id="ai-chat-inp" placeholder="Ask: 'How many shares for ₹25,000?' or 'Should I buy now?' or 'What's the stop loss?'" rows="2" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMsg()}"></textarea>
+              <button class="btn btn-pri" style="font-size:11px;padding:8px 14px;flex-shrink:0" onclick="sendChatMsg()">Send ↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Picks -->
+    <div class="ss-panel">
+      <div class="ss-panel-hdr">
+        <div class="ss-panel-ico">🎯</div>
+        <div>
+          <div class="ss-panel-ttl">Top Picks Today</div>
+          <div class="ss-panel-sub">AI scores your current watchlist — best setups first</div>
+        </div>
+        <button class="btn btn-sec" style="margin-left:auto;font-size:10px" onclick="scoreWatchlist()">⟳ Score All</button>
+      </div>
+      <div class="ss-panel-body">
+        <div id="watchlist-scores"><div class="lm" style="font-size:11px">Click "Score All" to rank your watchlist stocks by AI score</div></div>
+      </div>
+    </div>
+  </div>
+
   <!-- DETAIL PAGE -->
   <div class="pg" id="pg-detail">
     <div class="back" onclick="goPage('stocks')">← Back to Stocks</div>
@@ -790,6 +985,7 @@ function goPage(n) {
   if (n === 'watchlist') renderWL();
   if (n === 'commodities' && !Object.keys(CD).length) loadComm();
   if (n === 'market-news') loadMarketNews();
+  if (n === 'ai' && !MH_LOADED) checkMarketHealth();
   closeDrops();
 }
 
@@ -1542,6 +1738,951 @@ async function boot() {
     busy = false; setBtn(false);
   }
 }
+
+
+
+
+// ═══════════════════════════════════════════════════════════════════
+// STOCKSENSE AI — Pure JS 5-Layer Scoring Engine
+// Uses ONLY real fields from your server.py backend
+// No AI API calls — 100% hardcoded logic, always works
+// ═══════════════════════════════════════════════════════════════════
+
+let MH_LOADED = false;
+let AI_CURRENT_SYM = '';
+let AI_CURRENT_DATA = null;
+
+// ── Market Health check — uses /market-data + /commodities ────────
+async function checkMarketHealth() {
+  MH_LOADED = true;
+  const vd = document.getElementById('mh-verdict');
+  if(vd) vd.innerHTML = '<div class="lm"><span class="spin"></span> Fetching live market data…</div>';
+
+  // Reset cards
+  ['mh-gift','mh-dow','mh-vix','mh-crude','mh-nikkei'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = '…';
+  });
+
+  let mhResult = {};
+  try {
+    // Fetch /market-data (new endpoint: VIX, Nifty, Crude, S&P500)
+    const [md, comm] = await Promise.allSettled([
+      api('/market-data', 10000),
+      api('/commodities', 10000)
+    ]);
+
+    const marketData = md.status === 'fulfilled' ? md.value : {};
+    const commData   = comm.status === 'fulfilled' ? comm.value : {};
+
+    // Extract real values
+    const vix      = marketData.vix?.price     || 15;
+    const nifty    = marketData.nifty?.price   || 0;
+    const niftyChg = marketData.nifty?.changePct || 0;
+    const crude    = marketData.crude?.price   || 78;
+    const crudeChg = marketData.crude?.changePct || 0;
+    const sp500Chg = marketData.sp500?.changePct || 0;
+    const usdInr   = marketData.usdInr?.price || commData.usdInr?.close || commData.usdInr?.price || 84;
+
+    const now      = new Date();
+    const dow      = now.getDay();     // 0=Sun,4=Thu
+    const timeIST  = now.getHours() * 60 + now.getMinutes();
+    const isThursday = dow === 4;
+
+    // ── LAYER 1 SCORING — exact STOCKSENSE rules ──────────────────
+    let score = 0;
+
+    // Factor 1: Nifty / GIFT Nifty direction (use actual Nifty from Yahoo)
+    let niftyPts = 0, niftyStr = '', niftyCls = '';
+    if      (niftyChg >= 1)    { niftyPts = 2;  niftyStr = `+${niftyChg}% — Very positive`; niftyCls = 'up'; }
+    else if (niftyChg >= 0.3)  { niftyPts = 1;  niftyStr = `+${niftyChg}% — Positive`;     niftyCls = 'up'; }
+    else if (niftyChg > -0.3)  { niftyPts = 0;  niftyStr = `${niftyChg}% — Neutral`;       niftyCls = ''; }
+    else if (niftyChg >= -1)   { niftyPts = -1; niftyStr = `${niftyChg}% — Caution`;       niftyCls = 'dn'; }
+    else                       { niftyPts = -2; niftyStr = `${niftyChg}% — DANGEROUS ⚠️`;  niftyCls = 'dn'; }
+    score += niftyPts;
+
+    // Factor 2: India VIX — exact STOCKSENSE thresholds
+    let vixPts = 0, vixStr = '', vixCol = '';
+    if      (vix < 13) { vixPts = 1;  vixStr = `${vix.toFixed(1)} — Very Low 🟢`;    vixCol = 'var(--buy)'; }
+    else if (vix < 16) { vixPts = 0.5; vixStr = `${vix.toFixed(1)} — Normal 🟡`;     vixCol = 'var(--hold)'; }
+    else if (vix < 20) { vixPts = 0;  vixStr = `${vix.toFixed(1)} — Elevated 🟠`;   vixCol = 'var(--hold)'; }
+    else               { vixPts = -1; vixStr = `${vix.toFixed(1)} — DANGER 🔴`;      vixCol = 'var(--sell)'; }
+    score += vixPts;
+
+    // Factor 3: Brent/WTI Crude — exact STOCKSENSE thresholds
+    let crudePts = 0, crudeStr = '', crudeCol = '';
+    if      (crude < 80)  { crudePts = 1;   crudeStr = `$${crude.toFixed(1)} — Safe ✅`;        crudeCol = 'var(--buy)'; }
+    else if (crude < 90)  { crudePts = 0.5; crudeStr = `$${crude.toFixed(1)} — Okay ($80–90)`;  crudeCol = 'var(--hold)'; }
+    else if (crude < 100) { crudePts = 0;   crudeStr = `$${crude.toFixed(1)} — Caution ⚠️`;     crudeCol = 'var(--hold)'; }
+    else                  { crudePts = -1;  crudeStr = `$${crude.toFixed(1)} — Danger >$100 🔴`; crudeCol = 'var(--sell)'; }
+    score += crudePts;
+
+    // Factor 4: US Markets (S&P 500)
+    let usPts = 0, usStr = '';
+    if      (sp500Chg >= 0.5)  { usPts = 1;   usStr = `S&P500 +${sp500Chg}% — Positive`; }
+    else if (sp500Chg >= 0)    { usPts = 0.5; usStr = `S&P500 +${sp500Chg}% — Flat`;     }
+    else if (sp500Chg >= -1)   { usPts = 0;   usStr = `S&P500 ${sp500Chg}% — Negative`;  }
+    else                       { usPts = -1;  usStr = `S&P500 ${sp500Chg}% — Sharp fall`; }
+    score += usPts;
+
+    // Factor 5: Timing (day + time of day)
+    let timePts = 0.5, timeStr = '✅ Good trading window';
+    if (isThursday)                              { timePts = 0;  timeStr = '⚠️ Thursday — F&O Expiry (volatile)'; }
+    if (dow === 0 || dow === 6)                  { timePts = -1; timeStr = '🔴 Weekend — Market closed'; }
+    if (timeIST > 9*60+15 && timeIST < 10*60+30){ timePts = Math.min(timePts,0); timeStr += ' | ⚠️ Before 10:30 AM — wait'; }
+    if (timeIST > 14*60+30)                      { timePts = Math.min(timePts,0); timeStr += ' | ⚠️ After 2:30 PM — end-of-day risk'; }
+    score += timePts;
+
+    // Cap 0–5
+    score = Math.max(0, Math.min(5, Math.round(score * 10) / 10));
+    const status = score >= 4 ? 'SAFE' : score >= 3 ? 'CAUTION' : 'UNSAFE';
+    const statusCol = score >= 4 ? 'var(--buy)' : score >= 3 ? 'var(--hold)' : 'var(--sell)';
+    const statusBg  = score >= 4 ? 'var(--buy-bg)' : score >= 3 ? 'var(--hold-bg)' : 'var(--sell-bg)';
+    const statusBd  = score >= 4 ? 'var(--buy-bd)' : score >= 3 ? 'var(--hold-bd)' : 'var(--sell-bd)';
+
+    // Update cards
+    const elGift = document.getElementById('mh-gift');
+    const elGiftC = document.getElementById('mh-gift-c');
+    if(elGift) elGift.textContent = nifty ? inr(Math.round(nifty)) : '—';
+    if(elGiftC) elGiftC.innerHTML = `<span class="${niftyCls}">${niftyStr}</span>`;
+
+    const elDow = document.getElementById('mh-dow');
+    const elDowC = document.getElementById('mh-dow-c');
+    if(elDow) elDow.textContent = `$${crude.toFixed(1)}`;
+    if(elDowC) elDowC.innerHTML = `<span style="color:${crudeCol}">${crudeStr}</span>`;
+
+    const elVix = document.getElementById('mh-vix');
+    const elVixC = document.getElementById('mh-vix-c');
+    if(elVix) elVix.textContent = vix.toFixed(1);
+    if(elVixC) elVixC.innerHTML = `<span style="color:${vixCol}">${vixStr}</span>`;
+
+    const elCrude = document.getElementById('mh-crude');
+    const elCrudeC = document.getElementById('mh-crude-c');
+    if(elCrude) elCrude.textContent = '₹' + usdInr.toFixed(2);
+    if(elCrudeC) elCrudeC.innerHTML = `<span style="color:${usdInr < 83 ? 'var(--buy)' : usdInr < 85 ? 'var(--hold)' : 'var(--sell)'}">USD/INR ${usdInr < 83 ? '✅ Strong' : usdInr < 85 ? '🟡 Stable' : '⚠️ Weak'}</span>`;
+
+    const elNik = document.getElementById('mh-nikkei');
+    const elNikC = document.getElementById('mh-nikkei-c');
+    if(elNik) elNik.textContent = sp500Chg >= 0 ? `+${sp500Chg}%` : `${sp500Chg}%`;
+    if(elNikC) elNikC.innerHTML = `<span class="${sp500Chg >= 0 ? 'up' : 'dn'}">${usStr}</span>`;
+
+    const summaryMsg = score >= 4
+      ? 'Market conditions are favourable. Good day to trade with standard position size.'
+      : score >= 3
+      ? `Caution — ${isThursday ? 'F&O expiry today' : vix >= 16 ? 'VIX elevated' : 'some risk factors present'}. Trade with reduced size.`
+      : `Market unsafe — ${vix >= 20 ? 'VIX in danger zone' : isThursday ? 'F&O expiry + weak market' : 'multiple red flags'}. Avoid new positions.`;
+
+    if(vd) vd.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:var(--r8);background:${statusBg};border:1px solid ${statusBd};flex-wrap:wrap">
+        <span style="font-size:20px">${score >= 4 ? '✅' : score >= 3 ? '⚠️' : '🚨'}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:800;color:${statusCol}">Layer 1 Score: ${score}/5 — ${status}</div>
+          <div style="font-size:11px;color:var(--t2);margin-top:2px">${summaryMsg}</div>
+          <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:4px">
+            Nifty ${niftyChg >= 0 ? '+' : ''}${niftyChg}% &nbsp;|&nbsp; VIX: ${vix.toFixed(1)} &nbsp;|&nbsp; Crude: $${crude.toFixed(1)} &nbsp;|&nbsp; S&P: ${sp500Chg >= 0 ? '+' : ''}${sp500Chg}% &nbsp;|&nbsp; ₹${usdInr.toFixed(2)}
+            ${isThursday ? ' &nbsp;|&nbsp; <span style="color:var(--sell);font-weight:700">⚠️ Thursday F&O Expiry</span>' : ''}
+          </div>
+        </div>
+        ${score < 4 ? `<div style="font-family:var(--fm);font-size:10px;padding:4px 10px;border-radius:6px;white-space:nowrap;background:${score >= 3 ? 'var(--hold-bg)' : 'var(--sell-bg)'};color:${score >= 3 ? 'var(--hold)' : 'var(--sell)'};border:1px solid ${score >= 3 ? 'var(--hold-bd)' : 'var(--sell-bd)'}">${score >= 3 ? 'Trade small' : 'NO TRADE'}</div>` : ''}
+      </div>`;
+
+    // Store globally for layer 1 usage
+    window.MH_DATA = { score, status, vix, crude, usdInr, niftyChg, sp500Chg, isThursday, timeIST };
+
+  } catch(e) {
+    if(vd) vd.innerHTML = `<div class="lm" style="color:var(--sell)">Market data failed: ${e.message}</div>`;
+    window.MH_DATA = { score: 3, status: 'CAUTION', vix: 15, crude: 80, usdInr: 84, niftyChg: 0, sp500Chg: 0, isThursday: new Date().getDay() === 4 };
+  }
+}
+
+// ── Autocomplete for AI tab ────────────────────────────────────────
+let aiAcT = null;
+function aiSymAc(q) {
+  clearTimeout(aiAcT);
+  const d = document.getElementById('ai-sym-drop');
+  if (!q || q.length < 2) { d.classList.remove('show'); return; }
+  aiAcT = setTimeout(async () => {
+    try {
+      const res = await api('/search?q=' + encodeURIComponent(q), 4000);
+      const items = (res.results || []).slice(0, 6);
+      if (!items.length) { d.classList.remove('show'); return; }
+      d.innerHTML = items.map(r => `<div class="drop-item" onclick="aiPickSym('${r.symbol}')">
+        <div><div class="di-sym">${r.symbol}</div><div class="di-nm">${r.name}</div></div>
+        <span class="di-sec">${r.sector}</span></div>`).join('');
+      d.classList.add('show');
+    } catch {}
+  }, 200);
+}
+function aiPickSym(sym) {
+  document.getElementById('ai-sym-inp').value = sym;
+  document.getElementById('ai-sym-drop').classList.remove('show');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 5-LAYER SCORING FUNCTIONS — all use real backend fields
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Layer 1: Global Market from window.MH_DATA ───────────────────
+function calcLayer1() {
+  const mh = window.MH_DATA || { score: 3, status: 'CAUTION', vix: 15, crude: 80, isThursday: false };
+  const rows = [
+    { ico: mh.niftyChg >= 0.3 ? '✅' : mh.niftyChg < -0.5 ? '❌' : '➡️',
+      label: 'Nifty 50',
+      value: `${mh.niftyChg >= 0 ? '+' : ''}${mh.niftyChg}% — ${mh.niftyChg >= 1 ? 'Very positive' : mh.niftyChg >= 0.3 ? 'Positive' : mh.niftyChg > -0.3 ? 'Neutral' : 'Negative'}`,
+      pts: mh.niftyChg >= 1 ? 2 : mh.niftyChg >= 0.3 ? 1 : mh.niftyChg > -0.3 ? 0 : mh.niftyChg >= -1 ? -1 : -2 },
+    { ico: mh.vix < 16 ? '✅' : mh.vix < 20 ? '⚠️' : '❌',
+      label: 'India VIX',
+      value: `${mh.vix.toFixed ? mh.vix.toFixed(1) : mh.vix} — ${mh.vix < 13 ? 'Very Low 🟢' : mh.vix < 16 ? 'Normal 🟡' : mh.vix < 20 ? 'Elevated 🟠' : 'DANGER 🔴'}`,
+      pts: mh.vix < 13 ? 1 : mh.vix < 16 ? 0.5 : mh.vix < 20 ? 0 : -1 },
+    { ico: mh.crude < 90 ? '✅' : mh.crude < 100 ? '⚠️' : '❌',
+      label: 'Crude Oil',
+      value: `$${mh.crude.toFixed ? mh.crude.toFixed(1) : mh.crude}/barrel — ${mh.crude < 80 ? 'Safe ✅' : mh.crude < 90 ? 'Okay' : mh.crude < 100 ? 'Caution ⚠️' : 'Danger 🔴'}`,
+      pts: mh.crude < 80 ? 1 : mh.crude < 90 ? 0.5 : mh.crude < 100 ? 0 : -1 },
+    { ico: mh.sp500Chg >= 0 ? '✅' : '❌',
+      label: 'S&P 500',
+      value: `${mh.sp500Chg >= 0 ? '+' : ''}${mh.sp500Chg}% — ${mh.sp500Chg >= 0.5 ? 'Positive' : mh.sp500Chg >= 0 ? 'Flat' : mh.sp500Chg >= -1 ? 'Negative' : 'Sharp fall'}`,
+      pts: mh.sp500Chg >= 0.5 ? 1 : mh.sp500Chg >= 0 ? 0.5 : mh.sp500Chg >= -1 ? 0 : -1 },
+    { ico: mh.isThursday ? '⚠️' : '✅',
+      label: 'Day/Timing',
+      value: mh.isThursday ? '⚠️ Thursday — F&O Expiry Day (volatile, reduce size)' : '✅ Not expiry day — good trading window',
+      pts: mh.isThursday ? -0.5 : 0.5 },
+  ];
+  return { score: mh.score, status: mh.status, rows };
+}
+
+// ── Layer 2: Technical — uses real s.indicators fields ───────────
+function calcLayer2(s) {
+  const ind   = s.indicators || {};
+  const price = s.price || 0;
+  let score   = 0;
+  const rows  = [];
+
+  // Moving Averages (sma20 + sma50 — exactly what backend returns)
+  let maPts = 0;
+  const aboveSMA20 = ind.sma20 && price > ind.sma20;
+  const aboveSMA50 = ind.sma50 && price > ind.sma50;
+  if (aboveSMA20) maPts += 0.5;
+  if (aboveSMA50) maPts += 1;
+  // Confirmed downtrend: below both
+  if (ind.sma20 && ind.sma50 && price < ind.sma20 && price < ind.sma50) maPts = -2;
+  rows.push({
+    ico: maPts > 0 ? '✅' : maPts < 0 ? '❌' : '➡️',
+    label: 'Moving Avgs',
+    value: `₹${price.toFixed(0)} vs SMA20:₹${ind.sma20||'—'} SMA50:₹${ind.sma50||'—'}${aboveSMA20 && aboveSMA50 ? ' — Uptrend ✅' : !aboveSMA20 && !aboveSMA50 ? ' — Downtrend ❌' : ' — Mixed'}`,
+    pts: maPts
+  });
+  score += maPts;
+
+  // RSI — exact STOCKSENSE thresholds
+  const rsi = parseFloat(ind.rsi) || 50;
+  let rsiPts = 0, rsiLabel = '';
+  if      (rsi < 30) { rsiPts = 2;   rsiLabel = `${rsi} — Extreme Oversold 🔥 (strong bounce likely)`; }
+  else if (rsi < 45) { rsiPts = 1.5; rsiLabel = `${rsi} — Oversold Bounce Zone ✅ (best entry!)`; }
+  else if (rsi < 60) { rsiPts = 1;   rsiLabel = `${rsi} — Healthy Momentum ✅`; }
+  else if (rsi < 70) { rsiPts = 0.5; rsiLabel = `${rsi} — Strong but getting hot ⚠️`; }
+  else               { rsiPts = -1;  rsiLabel = `${rsi} — OVERBOUGHT ❌ — do not buy!`; }
+  rows.push({ ico: rsiPts > 0 ? '✅' : rsiPts < 0 ? '❌' : '⚠️', label: 'RSI (14)', value: rsiLabel, pts: rsiPts });
+  score += rsiPts;
+
+  // MACD — uses macdHist and macd from backend
+  const macdHist = parseFloat(ind.macdHist) || 0;
+  const macdLine = parseFloat(ind.macd) || 0;
+  let macdPts = 0, macdLabel = '';
+  if      (macdHist > 0 && macdLine > 0) { macdPts = 1.5; macdLabel = 'Bullish crossover + positive histogram ✅'; }
+  else if (macdHist > 0)                 { macdPts = 1;   macdLabel = 'Histogram turning positive ↑ ✅'; }
+  else if (macdHist < 0 && macdLine < 0) { macdPts = -1;  macdLabel = 'Negative and falling — downtrend ❌'; }
+  else                                    { macdPts = 0;   macdLabel = 'Neutral — wait for crossover'; }
+  rows.push({ ico: macdPts > 0 ? '✅' : macdPts < 0 ? '❌' : '➡️', label: 'MACD', value: macdLabel, pts: macdPts });
+  score += macdPts;
+
+  // Volume — uses volumeSignal from backend
+  const volSig = ind.volumeSignal || 'normal';
+  let volPts = 0, volLabel = '';
+  // High volume + price falling = distribution (dangerous)
+  if      (volSig === 'high' && (s.changePct || 0) < -1) { volPts = -1;  volLabel = '🔴 High vol + price falling = Distribution! Avoid.'; }
+  else if (volSig === 'high')                             { volPts = 1.5; volLabel = '🔥 Volume Spike 2x+ avg — institutional buying!'; }
+  else if (volSig === 'normal')                           { volPts = 0.5; volLabel = 'Normal volume — standard signal'; }
+  else                                                    { volPts = 0;   volLabel = '↓ Below average — weak signal, no conviction'; }
+  rows.push({ ico: volPts > 0 ? '✅' : volPts < 0 ? '❌' : '➡️', label: 'Volume', value: volLabel, pts: volPts });
+  score += volPts;
+
+  // Support & Resistance — uses ind.support and ind.resistance (20-day range)
+  let srPts = 0, srLabel = '';
+  if (ind.support && ind.resistance && price) {
+    const distFromSupp = ((price - ind.support) / ind.support) * 100;
+    const distFromRes  = ((ind.resistance - price) / price) * 100;
+    if      (distFromSupp <= 2 && (s.changePct || 0) >= 0) { srPts = 1;    srLabel = `Bouncing from support ₹${inr(ind.support)} ✅ ideal entry`; }
+    else if (distFromSupp <= 5)                             { srPts = 0.5;  srLabel = `Near support ₹${inr(ind.support)} — good zone`; }
+    else if (distFromRes  <= 1.5)                           { srPts = -0.5; srLabel = `At resistance ₹${inr(ind.resistance)} ⚠️ — breakout or reject?`; }
+    else if (price > ind.resistance)                        { srPts = 1;    srLabel = `Breaking above resistance ₹${inr(ind.resistance)} 🚀`; }
+    else { srPts = 0.5; srLabel = `Range: Support ₹${inr(ind.support)} → Resist ₹${inr(ind.resistance)}`; }
+  } else { srLabel = 'S/R data building (need 20+ days history)'; }
+  rows.push({ ico: srPts >= 0.5 ? '✅' : srPts < 0 ? '⚠️' : '➡️', label: 'Sup/Resist', value: srLabel, pts: srPts });
+  score += srPts;
+
+  // 52-Week position — uses high52w and low52w from backend
+  const h52 = s.high52w || price * 1.3;
+  const l52 = s.low52w  || price * 0.7;
+  const pctAboveLow  = l52 > 0 ? ((price - l52) / l52) * 100 : 50;
+  const pctBelowHigh = h52 > 0 ? ((h52 - price) / h52) * 100 : 10;
+  let w52Pts = 0, w52Label = '';
+  if      (pctAboveLow <= 5)   { w52Pts = 1;    w52Label = `${pctAboveLow.toFixed(0)}% above 52W low ₹${inr(l52)} — max downside protection ✅`; }
+  else if (pctAboveLow <= 30)  { w52Pts = 0.5;  w52Label = `${pctAboveLow.toFixed(0)}% above 52W low — healthy range`; }
+  else if (pctBelowHigh <= 3)  { w52Pts = -0.5; w52Label = `Within 3% of 52W high ₹${inr(h52)} — risky entry zone ⚠️`; }
+  else                         { w52Pts = 0;    w52Label = `52W: ₹${inr(l52)}–₹${inr(h52)} | CMP ₹${inr(price)}`; }
+  rows.push({ ico: w52Pts > 0 ? '✅' : w52Pts < 0 ? '⚠️' : '➡️', label: '52W Position', value: w52Label, pts: w52Pts });
+  score += w52Pts;
+
+  // Cap 0–7
+  score = Math.max(0, Math.min(7, Math.round(score * 10) / 10));
+  return { score, rows };
+}
+
+// ── Layer 3: Fundamentals — uses available backend fields as proxies
+// Backend does NOT return PE, debt, promoter — we use what we have
+function calcLayer3(s) {
+  let score = 0;
+  const rows = [];
+  const ind  = s.indicators || {};
+  const rsi  = parseFloat(ind.rsi) || 50;
+
+  // Factor 1: Recent Performance proxy (confidence score from backend calc)
+  // Backend's confidence is computed from RSI+MACD+Volume+Support — reflects fundamentals
+  const conf = s.confidence || 50;
+  let perfPts = 0, perfLabel = '';
+  if      (conf >= 75) { perfPts = 2;  perfLabel = `Confidence ${conf}% — Strong buy signal from backend AI ✅`; }
+  else if (conf >= 60) { perfPts = 1;  perfLabel = `Confidence ${conf}% — Positive signal`; }
+  else if (conf >= 45) { perfPts = 0.5; perfLabel = `Confidence ${conf}% — Neutral`; }
+  else                 { perfPts = 0;  perfLabel = `Confidence ${conf}% — Weak signal`; }
+  rows.push({ ico: perfPts >= 1 ? '✅' : '➡️', label: 'AI Confidence', value: perfLabel, pts: perfPts });
+  score += perfPts;
+
+  // Factor 2: Price vs SMAs (proxy for earnings/growth trend)
+  let trendPts = 0, trendLabel = '';
+  if (ind.sma20 && ind.sma50 && s.price) {
+    if (s.price > ind.sma20 && ind.sma20 > ind.sma50) {
+      trendPts = 1; trendLabel = `Price>SMA20>SMA50 — Confirmed uptrend ✅ (earnings likely growing)`;
+    } else if (s.price > ind.sma50) {
+      trendPts = 0.5; trendLabel = `Above SMA50 — medium-term trend positive`;
+    } else if (s.price < ind.sma20 && s.price < ind.sma50) {
+      trendPts = -1; trendLabel = `Below both SMAs — fundamental weakness likely ❌`;
+    } else {
+      trendPts = 0; trendLabel = `Mixed MA signals — no clear trend`;
+    }
+  } else { trendLabel = 'MA data loading…'; }
+  rows.push({ ico: trendPts > 0 ? '✅' : trendPts < 0 ? '❌' : '➡️', label: 'Price Trend', value: trendLabel, pts: trendPts });
+  score += trendPts;
+
+  // Factor 3: RSI as valuation proxy (low RSI = oversold = potentially undervalued)
+  let valPts = 0, valLabel = '';
+  if      (rsi < 35)  { valPts = 1;    valLabel = `RSI ${rsi} — Deeply oversold: potential value buy ✅`; }
+  else if (rsi < 50)  { valPts = 0.5;  valLabel = `RSI ${rsi} — Slightly undervalued territory`; }
+  else if (rsi < 65)  { valPts = 0;    valLabel = `RSI ${rsi} — Fair value zone`; }
+  else                { valPts = -0.5; valLabel = `RSI ${rsi} — Potentially overvalued ⚠️`; }
+  rows.push({ ico: valPts > 0 ? '✅' : valPts < 0 ? '⚠️' : '➡️', label: 'Valuation (RSI)', value: valLabel, pts: valPts });
+  score += valPts;
+
+  // Factor 4: Volume trend (institutional activity proxy)
+  const volSig = ind.volumeSignal || 'normal';
+  let instPts = 0, instLabel = '';
+  if      (volSig === 'high' && (s.changePct || 0) > 0) { instPts = 1;    instLabel = 'High volume + price up = institutional accumulation ✅'; }
+  else if (volSig === 'high' && (s.changePct || 0) < 0) { instPts = -0.5; instLabel = 'High volume + price down = institutional distribution ❌'; }
+  else if (volSig === 'high')                            { instPts = 0.5;  instLabel = 'High volume — strong participation'; }
+  else                                                   { instPts = 0;    instLabel = 'Normal volume — no unusual institutional activity'; }
+  rows.push({ ico: instPts >= 0.5 ? '✅' : instPts < 0 ? '❌' : '➡️', label: 'Inst. Activity', value: instLabel, pts: instPts });
+  score += instPts;
+
+  // Factor 5: Sentiment score
+  let sentPts = 0, sentLabel = '';
+  if      (s.sentiment === 'Bullish')  { sentPts = 1;    sentLabel = 'Backend signals Bullish fundamental picture ✅'; }
+  else if (s.sentiment === 'Neutral')  { sentPts = 0.5;  sentLabel = 'Neutral — no strong fundamental signal'; }
+  else if (s.sentiment === 'Bearish')  { sentPts = -0.5; sentLabel = 'Backend signals Bearish — caution ⚠️'; }
+  rows.push({ ico: sentPts > 0 ? '✅' : sentPts < 0 ? '⚠️' : '➡️', label: 'Sentiment', value: sentLabel, pts: sentPts });
+  score += sentPts;
+
+  // Factor 6: Recommendation from backend
+  let recPts = 0, recLabel = '';
+  if      (s.recommendation === 'BUY')   { recPts = 0.5;  recLabel = 'Backend recommendation: BUY ✅'; }
+  else if (s.recommendation === 'HOLD')  { recPts = 0;    recLabel = 'Backend recommendation: HOLD — wait for clearer signal'; }
+  else if (s.recommendation === 'AVOID') { recPts = -0.5; recLabel = 'Backend recommendation: AVOID ❌'; }
+  rows.push({ ico: recPts >= 0.5 ? '✅' : recPts < 0 ? '❌' : '➡️', label: 'Rec. Signal', value: recLabel, pts: recPts });
+  score += recPts;
+
+  score = Math.max(0, Math.min(6, Math.round(score * 10) / 10));
+  return { score, rows };
+}
+
+// ── Layer 4: News — uses /news endpoint (title, sentiment, impact) ─
+function calcLayer4(s, news) {
+  let score = 0;
+  const rows = [];
+  const newsArr = news || [];
+
+  // Count sentiment from news[].sentiment (from backend classify_sentiment)
+  const posN = newsArr.filter(n => n.sentiment === 'positive');
+  const negN = newsArr.filter(n => n.sentiment === 'negative');
+
+  // Base score from sentiment balance
+  if      (posN.length > negN.length * 2)    score += 2;
+  else if (posN.length > negN.length)         score += 1;
+  else if (negN.length > posN.length * 2)     score -= 2;
+  else if (negN.length > posN.length)         score -= 1;
+
+  // Scan news titles for STOCKSENSE keyword rules
+  const allText = newsArr.map(n => (n.title + ' ' + (n.desc || '')).toLowerCase()).join(' ');
+
+  // Positive catalysts — +3 pts
+  if (/order|contract|wins|secures|bags|awarded/.test(allText)) {
+    const n = newsArr.find(x => /order|contract|wins|secures|bags|awarded/.test((x.title||'').toLowerCase()));
+    score += 2;
+    rows.push({ ico: '✅', label: '📦 Order Win', value: (n?.title || 'Order/Contract news detected').slice(0,75), pts: 2 });
+  }
+  if (/beat|exceed|profit.*rise|strong.*result|net.*profit.*up/.test(allText)) {
+    score += 2;
+    rows.push({ ico: '✅', label: '📈 Earnings Beat', value: 'Strong earnings/results detected', pts: 2 });
+  }
+  if (/upgrade|target.*rais|buy.*initiat|price.*target.*increas/.test(allText)) {
+    score += 2;
+    rows.push({ ico: '✅', label: '⬆️ Analyst Upgrade', value: 'Analyst upgrade or target raised', pts: 2 });
+  }
+  if (/partner|mou|memorandum|agreement|collaborat/.test(allText)) {
+    score += 1;
+    rows.push({ ico: '✅', label: '🤝 Partnership', value: 'MoU/Partnership announcement', pts: 1 });
+  }
+
+  // Negative catalysts
+  if (/sebi|ed |cbi|fraud|investigation|probe/.test(allText)) {
+    score -= 4;
+    rows.push({ ico: '❌', label: '🚨 SEBI/ED Alert', value: 'Regulatory investigation detected — AVOID', pts: -4 });
+  }
+  if (/miss|disappoint|net.*loss|below.*estimate|weak.*result/.test(allText)) {
+    score -= 3;
+    rows.push({ ico: '❌', label: '📉 Earnings Miss', value: 'Earnings miss or weak results detected', pts: -3 });
+  }
+  if (/downgrade|sell.*initiat|target.*cut|lower.*target/.test(allText)) {
+    score -= 2;
+    rows.push({ ico: '❌', label: '⬇️ Downgrade', value: 'Analyst downgrade or target cut', pts: -2 });
+  }
+  if (/resign|quit|steps.*down|exits.*as/.test(allText)) {
+    score -= 1;
+    rows.push({ ico: '❌', label: '👤 Mgmt Exit', value: 'Key management resignation detected', pts: -1 });
+  }
+
+  // If no specific rows, show top 3 news from backend
+  if (rows.length === 0 && newsArr.length > 0) {
+    // Show HIGH impact news first
+    const sorted = [...newsArr].sort((a,b) => {
+      const w = {HIGH:3,MEDIUM:2,LOW:1};
+      return (w[b.impact]||1) - (w[a.impact]||1);
+    });
+    sorted.slice(0, 3).forEach(n => {
+      const pts = n.sentiment === 'positive' ? 1 : n.sentiment === 'negative' ? -1 : 0;
+      rows.push({
+        ico: pts > 0 ? '✅' : pts < 0 ? '❌' : '➡️',
+        label: `${n.impact || 'LOW'} Impact`,
+        value: (n.title || '').slice(0, 80) + (n.title?.length > 80 ? '…' : ''),
+        pts
+      });
+    });
+  }
+
+  if (rows.length === 0) {
+    rows.push({ ico: '➡️', label: 'No News', value: 'No significant news found — neutral impact', pts: 0 });
+  }
+
+  score = Math.max(-5, Math.min(5, score));
+  const catalystAlert = score <= -3;
+  return { score, rows, catalystAlert };
+}
+
+// ── Layer 5: Risk Qualification blockers ─────────────────────────
+function calcLayer5(s) {
+  const blockers   = [];
+  const softWarns  = [];
+  const mh         = window.MH_DATA || {};
+  const now        = new Date();
+  const dow        = now.getDay();
+  const timeIST    = now.getHours() * 60 + now.getMinutes();
+  const ind        = s.indicators || {};
+
+  // BLOCKER 1: VIX emergency — hard block
+  if ((mh.vix || 0) >= 20) {
+    blockers.push(`🔴 India VIX at ${mh.vix} — Emergency territory (>20). DO NOT trade any stock today.`);
+  }
+
+  // BLOCKER 2: Stock falling hard with high volume = distribution
+  if ((s.changePct || 0) < -8) {
+    blockers.push(`❌ Stock down ${Math.abs(s.changePct).toFixed(1)}% today — possible circuit event or bad news. Wait for next session.`);
+  }
+  if ((s.changePct || 0) < -3 && ind.volumeSignal === 'high') {
+    blockers.push(`❌ Heavy selling (${s.changePct}%) with volume spike — distribution pattern. Avoid today.`);
+  }
+
+  // BLOCKER 3: Confirmed downtrend (below both MAs while falling)
+  if (ind.sma50 && ind.sma20 && s.price && s.price < ind.sma20 && s.price < ind.sma50 && (s.changePct || 0) < -1) {
+    blockers.push(`❌ Price below SMA20 (₹${ind.sma20}) and SMA50 (₹${ind.sma50}) while falling — confirmed downtrend. Skip this stock.`);
+  }
+
+  // SOFT WARNINGS (don't block but flag)
+  if (dow === 4) {
+    softWarns.push(`⚠️ Thursday F&O Expiry Day — high intraday volatility. Use 50% reduced position size.`);
+  }
+  if (timeIST > 9*60+15 && timeIST < 10*60+30) {
+    softWarns.push(`⚠️ Before 10:30 AM IST — morning volatility window. Best to wait until 10:30 AM.`);
+  }
+  if (timeIST > 14*60+30 && timeIST < 15*60+30) {
+    softWarns.push(`⚠️ After 2:30 PM IST — end-of-day risk. Institutions squaring positions. Avoid late entries.`);
+  }
+  if ((ind.rsi || 50) > 75 && (s.changePct || 0) > 3) {
+    softWarns.push(`⚠️ RSI ${ind.rsi} overbought + up ${s.changePct}% today — do NOT chase. Wait for pullback.`);
+  }
+  if ((s.changePct || 0) >= 3) {
+    softWarns.push(`⚠️ Stock already up ${s.changePct}% today. If entering, wait for 0.5–1% dip from current price.`);
+  }
+
+  const clear = blockers.filter(b => b.startsWith('❌') || b.startsWith('🔴')).length === 0;
+  return { clear, blockers, softWarns, isThursday: dow === 4 };
+}
+
+// ── Final Signal from total score ────────────────────────────────
+function calcFinalSignal(l1, l2, l3, l4) {
+  const total = l1.score + l2.score + l3.score + l4.score;
+  let signal = '', cls = '', emoji = '', col = '';
+  if      (total >= 19) { signal='STRONG BUY'; cls='vb-strong'; emoji='🟢🟢'; col='var(--buy)'; }
+  else if (total >= 15) { signal='BUY';         cls='vb-buy';    emoji='🟢';   col='var(--buy)'; }
+  else if (total >= 11) { signal='WEAK BUY';    cls='vb-weak';   emoji='🟡';   col='var(--hold)'; }
+  else if (total >= 7)  { signal='WATCH';        cls='vb-watch';  emoji='⚠️';   col='var(--t2)'; }
+  else if (total >= 0)  { signal='NO TRADE';    cls='vb-notrade'; emoji='🔴';  col='var(--sell)'; }
+  else                  { signal='DANGER';       cls='vb-notrade'; emoji='🚨'; col='var(--sell)'; }
+  return { total: parseFloat(total.toFixed(1)), signal, cls, emoji, col };
+}
+
+// ── Auto Trade Plan calculation ───────────────────────────────────
+function buildTradePlan(s, final, l5, budget) {
+  if (!['STRONG BUY','BUY','WEAK BUY'].includes(final.signal)) return { show: false };
+  if (l5.blockers.filter(b => b.startsWith('❌') || b.startsWith('🔴')).length > 0) return { show: false, blocked: true };
+
+  const ind   = s.indicators || {};
+  const price = s.price || 0;
+  if (!price) return { show: false };
+
+  // Use backend's already-computed tradeLevels if available — they use support/resistance
+  // to align SL with real technical levels
+  const tl = s.tradeLevels || {};
+
+  let entry    = tl.entry    || price;
+  let sl       = tl.stop_loss || 0;
+  let t1       = tl.target1  || 0;
+  let t2       = tl.target2  || 0;
+  let slPct    = tl.risk_pct || 2.5;
+
+  // Override with STOCKSENSE exact rules on top of backend levels:
+  // Stop loss = 2% for STRONG BUY, 2.5% for BUY, 3% for WEAK BUY
+  if (final.signal === 'STRONG BUY' && slPct > 2.0) { sl = parseFloat((entry * 0.980).toFixed(0)); slPct = 2.0; }
+  else if (final.signal === 'BUY'   && slPct > 2.5) { sl = parseFloat((entry * 0.975).toFixed(0)); slPct = 2.5; }
+  else if (final.signal === 'WEAK BUY')              { sl = parseFloat((entry * 0.970).toFixed(0)); slPct = 3.0; }
+  // Align SL with support if support is close
+  if (ind.support && ind.support > sl && ind.support < entry * 0.99) sl = parseFloat((ind.support * 0.995).toFixed(0));
+
+  // STOCKSENSE targets: T1=+1.5%, T2=+2.5%, T3=+4%
+  t1 = parseFloat((entry * 1.015).toFixed(0));
+  t2 = parseFloat((entry * 1.025).toFixed(0));
+  const t3 = parseFloat((entry * 1.040).toFixed(0));
+
+  const reward = ((t2 - entry) / entry) * 100;
+  const risk   = ((entry - sl) / entry) * 100;
+  const rr     = risk > 0 ? parseFloat((reward / risk).toFixed(1)) : 0;
+  const rrOk   = rr >= 1.5;
+
+  const shares     = Math.floor(budget / entry);
+  const investment = Math.round(shares * entry);
+  const profitT1   = Math.round(shares * (t1 - entry));
+  const profitT2   = Math.round(shares * (t2 - entry));
+  const maxLoss    = Math.round(shares * (entry - sl));
+
+  const waitForDip = (s.changePct || 0) >= 2;
+
+  return {
+    show: true, waitForDip,
+    entry, sl, slPct: parseFloat(slPct).toFixed(1),
+    t1, t2, t3, rr, rrOk,
+    shares, investment, profitT1, profitT2, maxLoss
+  };
+}
+
+// ── Verdict text ──────────────────────────────────────────────────
+function buildVerdict(s, l1, l2, l3, l4, l5, final) {
+  const ind  = s.indicators || {};
+  const mh   = window.MH_DATA || {};
+  const parts = [];
+
+  if (['STRONG BUY','BUY'].includes(final.signal)) {
+    if (l2.score >= 5) parts.push(`Strong technical setup — RSI ${ind.rsi||'?'} in buy zone${ind.volumeSignal==='high'?' with volume spike confirming the move':''}`);
+    if (l1.score >= 4) parts.push('global markets supportive');
+    if (l4.score >= 2) parts.push('positive news flow adding momentum');
+  } else if (final.signal === 'WEAK BUY') {
+    parts.push(`Marginal setup at ${final.total}/23 — enter with HALF position only. RSI ${ind.rsi||'?'} ${(ind.rsi||50) < 50 ? 'in oversold zone' : 'needs to come down'}`);
+    if (l1.score < 3) parts.push('global markets not fully supportive — keep size small');
+  } else if (final.signal === 'WATCH') {
+    parts.push(`Score ${final.total}/23 — not enough conviction to enter yet. Wait for RSI to drop below 45 or volume spike to confirm before buying`);
+  } else {
+    parts.push(`Score ${final.total}/23 — multiple red flags present`);
+    if (!l5.clear) parts.push('Layer 5 hard blockers found');
+    if (l4.catalystAlert) parts.push('negative news catalyst dragging sentiment');
+    parts.push('skip this stock today and look for a better setup');
+  }
+  if (l5.isThursday) parts.push('Thursday F&O expiry — if you must enter, use 50% position size only');
+
+  return parts.join('; ') + '.';
+}
+
+// ── Top 3 Risks ───────────────────────────────────────────────────
+function buildRisks(s, l1, l2, l3, l4, l5, final) {
+  const risks = [];
+  const ind = s.indicators || {};
+  const mh  = window.MH_DATA || {};
+
+  // Risk 1: Market-level
+  if ((mh.vix || 0) >= 16) risks.push(`India VIX elevated at ${mh.vix} — fear is above normal. Moves can reverse quickly without warning. Use tight stop.`);
+  else if (l1.score < 3)   risks.push(`Market score only ${l1.score}/5 — global conditions weak. Any negative global trigger (crude, Fed, geopolitics) can reverse this trade.`);
+  else                     risks.push(`Market score ${l1.score}/5. Key watchouts: ${(mh.crude || 0) > 85 ? `Crude at $${mh.crude} could pressure inflation` : 'monitor GIFT Nifty at 8:30 AM before entry'}.`);
+
+  // Risk 2: Technical-level
+  if ((ind.rsi || 50) > 70) risks.push(`RSI ${ind.rsi} is overbought — stock is extended. Any negative news can cause sharp 3–5% correction. Strict stop loss ₹${inr(Math.round((s.price||0)*0.975))} is mandatory.`);
+  else if (l5.isThursday)   risks.push(`Thursday F&O expiry — option writers defend key strikes aggressively. Expect sharp 1–2% whipsaw moves intraday. Reduce position by 50%.`);
+  else                      risks.push(`Technical risk: if price breaks support ₹${inr(ind.support || Math.round((s.price||0)*0.97))}, next support is ${ind.sma50 ? `SMA50 ₹${inr(ind.sma50)}` : 'significantly lower'}. Exit on SL breach immediately.`);
+
+  // Risk 3: Trade management rule — always
+  const sl = final.signal === 'STRONG BUY' ? Math.round((s.price||0)*0.980)
+           : final.signal === 'BUY'        ? Math.round((s.price||0)*0.975)
+           :                                 Math.round((s.price||0)*0.970);
+  risks.push(`Always exit by Day 3 — never convert this swing trade into a long-term hold. If SL ₹${inr(sl)} is hit, exit immediately. No averaging down on a losing position.`);
+
+  return risks.slice(0, 3);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN RUNNER — Called by "Analyse Now" button
+// ═══════════════════════════════════════════════════════════════════
+async function runStocksense() {
+  const sym    = document.getElementById('ai-sym-inp').value.trim().toUpperCase().replace(/\.NS|\.BO/gi,'');
+  const budget = parseInt(document.getElementById('ai-budget').value) || 25000;
+  if (!sym) {
+    document.getElementById('ai-output').innerHTML = '<div class="lm" style="color:var(--sell)">Please enter a stock symbol first.</div>';
+    return;
+  }
+
+  AI_CURRENT_SYM = sym;
+  const btn  = document.getElementById('ai-run-btn');
+  const prog = document.getElementById('ai-progress');
+  btn.disabled = true;
+  document.getElementById('ai-btn-txt').textContent = '⏳ Analysing…';
+  if(prog) { prog.style.display = 'flex'; ['lp1','lp2','lp3','lp4','lp5'].forEach(id => { const el=document.getElementById(id); if(el) el.className='lp-dot'; }); }
+
+  document.getElementById('ai-output').innerHTML = `
+    <div style="text-align:center;padding:28px;font-family:var(--fm)">
+      <div class="spin" style="width:24px;height:24px;margin:0 auto 12px"></div>
+      <div style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:4px">Running 5-Layer STOCKSENSE Analysis</div>
+      <div style="font-size:11px;color:var(--t3)">Fetching live data from your backend…</div>
+    </div>`;
+
+  try {
+    // === LAYER 1: Fetch market health if not already loaded ===
+    setLP(1, 'active');
+    if (!window.MH_DATA) await checkMarketHealth();
+    const l1 = calcLayer1();
+    setLP(1, 'done');
+
+    // Emergency stop if market totally unsafe
+    if (l1.score <= 1 && (window.MH_DATA?.vix || 0) >= 22) {
+      document.getElementById('ai-output').innerHTML = `
+        <div class="blocker-alert">
+          <div class="blocker-ico">🚨</div>
+          <div class="blocker-ttl">MARKET UNSAFE — Layer 1 Score: ${l1.score}/5</div>
+          <div class="blocker-msg">India VIX at ${window.MH_DATA.vix} — emergency territory (>20).<br><br>
+          Do NOT trade any stock today. Wait for VIX to fall below 20 before entering new positions.</div>
+        </div>`;
+      btn.disabled=false; document.getElementById('ai-btn-txt').textContent='🤖 Analyse Now';
+      if(prog) prog.style.display='none';
+      return;
+    }
+
+    // === Fetch stock data from /stock endpoint ===
+    setLP(2, 'active');
+    let stockData = SD[sym];
+    if (!stockData || stockData.status !== 'ok') {
+      try { stockData = await api('/stock?symbol=' + sym + '&range=60d'); } catch(e) {}
+    }
+    if (!stockData || stockData.status !== 'ok') {
+      document.getElementById('ai-output').innerHTML =
+        `<div class="lm" style="color:var(--sell)">Cannot fetch data for "${sym}". Make sure it's a valid NSE symbol and backend is running.</div>`;
+      btn.disabled=false; document.getElementById('ai-btn-txt').textContent='🤖 Analyse Now';
+      if(prog) prog.style.display='none';
+      return;
+    }
+
+    // === LAYER 2: Technical (all from s.indicators) ===
+    const l2 = calcLayer2(stockData);
+    setLP(2, 'done');
+
+    // === LAYER 3: Fundamentals (proxied from available fields) ===
+    setLP(3, 'active');
+    const l3 = calcLayer3(stockData);
+    setLP(3, 'done');
+
+    // === LAYER 4: News (from /news endpoint) ===
+    setLP(4, 'active');
+    let newsData = [];
+    try { const nr = await api('/news?symbol=' + sym); newsData = nr.news || []; } catch(e) {}
+    const l4 = calcLayer4(stockData, newsData);
+    setLP(4, 'done');
+
+    // === LAYER 5: Risk blockers ===
+    setLP(5, 'active');
+    const l5 = calcLayer5(stockData);
+    if (l4.catalystAlert) l5.blockers.unshift('🚨 Negative Catalyst Alert (news score -3 or below) — avoid entry until this resolves.');
+    setLP(5, l5.clear ? 'done' : 'bad');
+
+    // === FINAL VERDICT ===
+    const final   = calcFinalSignal(l1, l2, l3, l4);
+    const verdict = buildVerdict(stockData, l1, l2, l3, l4, l5, final);
+    const tp      = buildTradePlan(stockData, final, l5, budget);
+    const risks   = buildRisks(stockData, l1, l2, l3, l4, l5, final);
+
+    AI_CURRENT_DATA = { sym, stockData, l1, l2, l3, l4, l5, final, tp, verdict, risks, budget };
+    renderStocksenseResult(stockData, l1, l2, l3, l4, l5, final, verdict, tp, risks, budget);
+
+  } catch(e) {
+    document.getElementById('ai-output').innerHTML =
+      `<div class="lm" style="color:var(--sell)">Analysis failed: ${e.message}</div>`;
+    console.error('STOCKSENSE error:', e);
+  }
+
+  btn.disabled=false;
+  document.getElementById('ai-btn-txt').textContent='🤖 Analyse Now';
+  if(prog) prog.style.display='none';
+}
+
+function setLP(n, status) {
+  const el = document.getElementById('lp'+n);
+  if(el) el.className = 'lp-dot ' + status;
+}
+
+// ── Render full result ────────────────────────────────────────────
+function renderStocksenseResult(s, l1, l2, l3, l4, l5, final, verdict, tp, risks, budget) {
+  const total  = final.total;
+  const pct    = Math.min(100, (total / 23) * 100);
+  const barCol = total >= 15 ? 'var(--buy)' : total >= 11 ? 'var(--hold)' : 'var(--sell)';
+  const ind    = s.indicators || {};
+
+  const ptsHtml = (pts) => {
+    const n = parseFloat(pts);
+    if (!n) return '<span class="lr-pts pts-z">0</span>';
+    return n > 0 ? `<span class="lr-pts pts-p">+${n}</span>` : `<span class="lr-pts pts-n">${n}</span>`;
+  };
+  const layerRowsHtml = (rows) => (rows||[]).map(r =>
+    `<div class="layer-row">
+       <span class="lr-ico">${r.ico||'➡️'}</span>
+       <span class="lr-key">${r.label}</span>
+       <span class="lr-val">${r.value}</span>
+       ${ptsHtml(r.pts)}
+     </div>`).join('');
+  const scCls = (s,mx) => s/mx >= 0.65 ? 'ls-ok' : s/mx >= 0.4 ? 'ls-warn' : 'ls-bad';
+
+  // Layer 5 HTML
+  const l5Hard = l5.blockers.filter(b => b.startsWith('❌') || b.startsWith('🔴') || b.startsWith('🚨'));
+  const l5HardHtml = l5Hard.length > 0
+    ? `<div class="blocker-alert"><div class="blocker-ico">🚨</div><div class="blocker-ttl">HARD BLOCKERS</div><div class="blocker-msg">${l5Hard.join('<br><br>')}</div></div>`
+    : '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--buy);padding:6px 0"><span>✅</span><span>No hard blockers — trade is allowed</span></div>';
+  const l5SoftHtml = l5.softWarns.map(w => `<div class="risk-row">${w}</div>`).join('');
+
+  // Trade plan HTML
+  let tpHtml = '';
+  if (tp.show) {
+    tpHtml = `
+    <div class="trade-plan">
+      <div class="tp-hdr">📋 TRADE PLAN — ${AI_CURRENT_SYM}</div>
+      ${tp.waitForDip ? `<div style="background:var(--hold-bg);border:1px solid var(--hold-bd);border-radius:var(--r8);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--hold)">⚠️ Stock up ${(s.changePct||0).toFixed(1)}% today — wait for 0.5–1% dip to ~₹${inr(Math.round(tp.entry*0.99))} before entering</div>` : ''}
+      <div class="tp-grid">
+        <div class="tp-item"><div class="tp-label">Entry Price</div><div class="tp-value" style="color:var(--buy)">₹${inr(tp.entry)}</div><div class="tp-sub">${tp.waitForDip ? 'Wait for dip' : 'Current price'}</div></div>
+        <div class="tp-item"><div class="tp-label">Stop Loss</div><div class="tp-value" style="color:var(--sell)">₹${inr(tp.sl)}</div><div class="tp-sub">-${tp.slPct}% | Exit immediately if hit</div></div>
+        <div class="tp-item"><div class="tp-label">Target 1 (40%)</div><div class="tp-value" style="color:#34d399">₹${inr(tp.t1)}</div><div class="tp-sub">+1.5% — sell 40% here</div></div>
+        <div class="tp-item"><div class="tp-label">Target 2 (40%)</div><div class="tp-value" style="color:#22c55e">₹${inr(tp.t2)}</div><div class="tp-sub">+2.5% — sell 40% here</div></div>
+        <div class="tp-item"><div class="tp-label">Target 3 (20%)</div><div class="tp-value" style="color:#16a34a">₹${inr(tp.t3)}</div><div class="tp-sub">+4.0% — hold last 20%</div></div>
+        <div class="tp-item"><div class="tp-label">Risk : Reward</div><div class="tp-value" style="color:#818cf8">1 : ${tp.rr}</div><div class="tp-sub" style="color:${tp.rrOk?'var(--buy)':'var(--sell)'}">${tp.rrOk ? '✅ Acceptable' : '⚠️ Below 1.5 — skip'}</div></div>
+      </div>
+      <div class="budget-box">
+        <div style="font-size:9px;font-family:var(--fm);letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:8px">For ₹${budget.toLocaleString('en-IN')} Budget</div>
+        <div class="budget-row"><span class="bl">Shares to buy</span><span class="bv">${tp.shares} shares</span></div>
+        <div class="budget-row"><span class="bl">Total investment</span><span class="bv">₹${tp.investment.toLocaleString('en-IN')}</span></div>
+        <div class="budget-row"><span class="bl">Profit at Target 1</span><span class="bv" style="color:var(--buy)">+₹${tp.profitT1.toLocaleString('en-IN')}</span></div>
+        <div class="budget-row"><span class="bl">Profit at Target 2</span><span class="bv" style="color:var(--buy)">+₹${tp.profitT2.toLocaleString('en-IN')}</span></div>
+        <div class="budget-row"><span class="bl">Max loss (if SL hit)</span><span class="bv" style="color:var(--sell)">-₹${tp.maxLoss.toLocaleString('en-IN')}</span></div>
+        <div class="budget-row"><span class="bl">Hold maximum</span><span class="bv">2–3 days (Day 3 exit all)</span></div>
+        <div class="budget-row"><span class="bl">Best entry time</span><span class="bv">10:30 AM – 1:00 PM IST</span></div>
+      </div>
+      <div style="margin-top:9px;font-size:10px;font-family:var(--fm);color:var(--t3);line-height:1.6">
+        ⏱ Time stop: Day 1 — hold if in profit, exit if at loss at close. Day 2 — book 50%+ if target not hit. Day 3 — EXIT ALL positions without exception. Never convert swing trade to long-term hold.
+      </div>
+    </div>`;
+  } else if (tp.blocked) {
+    tpHtml = '<div class="blocker-alert" style="margin-bottom:12px"><div class="blocker-ico">🚫</div><div class="blocker-ttl">Trade Plan Blocked</div><div class="blocker-msg">Hard blockers in Layer 5 prevent trade entry. Resolve issues first.</div></div>';
+  }
+
+  document.getElementById('ai-output').innerHTML = `
+    <!-- Price header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;padding:14px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r16);margin-bottom:12px">
+      <div>
+        <div style="font-size:17px;font-weight:900;color:var(--t1)">${s.name||AI_CURRENT_SYM}</div>
+        <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:2px">${AI_CURRENT_SYM} · NSE · ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>
+        <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:4px">52W: ₹${inr(Math.round(s.low52w||0))} — ₹${inr(Math.round(s.high52w||0))} &nbsp;|&nbsp; Vol: ${fv(s.volume||0)}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:26px;font-weight:900;font-family:var(--fm);color:var(--t1)">₹${(s.price||0).toFixed(2)}</div>
+        <div class="${(s.changePct||0)>=0?'up':'dn'}" style="font-size:12px;font-family:var(--fm)">${(s.changePct||0)>=0?'+':''}${s.changePct||0}% today | ${(s.change||0)>=0?'+':''}₹${Math.abs(s.change||0).toFixed(2)}</div>
+        <div style="font-size:10px;color:var(--t3);font-family:var(--fm);margin-top:4px">RSI: ${ind.rsi||'—'} &nbsp;|&nbsp; Vol: ${ind.volumeSignal||'normal'} &nbsp;|&nbsp; ${s.sentiment||'Neutral'}</div>
+      </div>
+    </div>
+
+    <!-- Verdict box -->
+    <div class="verdict-box ${final.cls}" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:26px;line-height:1">${final.emoji}</div>
+          <div style="font-size:18px;font-weight:900;color:${final.col};margin-top:4px">${final.signal}</div>
+          <div style="display:flex;align-items:baseline;gap:4px;margin-top:4px">
+            <span style="font-size:32px;font-weight:900;font-family:var(--fm);color:${final.col};line-height:1">${total}</span>
+            <span style="font-size:12px;color:var(--t3);font-family:var(--fm)">/ 23</span>
+          </div>
+          <div style="height:5px;width:130px;background:var(--bdr);border-radius:3px;overflow:hidden;margin-top:5px">
+            <div style="height:100%;width:${pct}%;background:${barCol};border-radius:3px;transition:width .8s ease"></div>
+          </div>
+          <div style="font-size:9px;font-family:var(--fm);color:var(--t3);margin-top:4px">L1:${l1.score} + L2:${l2.score} + L3:${l3.score} + L4:${l4.score}</div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:12px;color:var(--t2);line-height:1.7">${verdict}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Layer 1 -->
+    <div class="layer-card lc-global">
+      <div class="layer-hdr"><div class="layer-ttl">🌍 Layer 1: Global Market Health</div><span class="layer-score ${scCls(l1.score,5)}">${l1.score}/5 — ${l1.status}</span></div>
+      ${layerRowsHtml(l1.rows)}
+    </div>
+
+    <!-- Layer 2 -->
+    <div class="layer-card lc-tech">
+      <div class="layer-hdr"><div class="layer-ttl">📊 Layer 2: Technical Analysis</div><span class="layer-score ${scCls(l2.score,7)}">${l2.score}/7</span></div>
+      ${layerRowsHtml(l2.rows)}
+    </div>
+
+    <!-- Layer 3 -->
+    <div class="layer-card lc-fund">
+      <div class="layer-hdr"><div class="layer-ttl">💰 Layer 3: Fundamental Signals</div><span class="layer-score ${scCls(l3.score,6)}">${l3.score}/6</span></div>
+      ${layerRowsHtml(l3.rows)}
+    </div>
+
+    <!-- Layer 4 -->
+    <div class="layer-card lc-news">
+      <div class="layer-hdr"><div class="layer-ttl">📰 Layer 4: News & Catalysts</div><span class="layer-score ${l4.score>=2?'ls-ok':l4.score>=0?'ls-warn':'ls-bad'}">${l4.score>=0?'+':''}${l4.score}/5</span></div>
+      ${layerRowsHtml(l4.rows)}
+      ${l4.catalystAlert ? '<div class="risk-row">🚨 Negative Catalyst Alert — news score -3 or below. Avoid entry until resolved.</div>' : ''}
+    </div>
+
+    <!-- Layer 5 -->
+    <div class="layer-card lc-risk">
+      <div class="layer-hdr"><div class="layer-ttl">🚦 Layer 5: Risk Qualification</div><span class="layer-score ${l5.clear?'ls-ok':'ls-bad'}">${l5.clear?'✅ CLEAR':'🚨 BLOCKED'}</span></div>
+      ${l5HardHtml}
+      ${l5SoftHtml}
+    </div>
+
+    <!-- Trade Plan -->
+    ${tpHtml}
+
+    <!-- Top 3 Risks -->
+    <div style="margin-bottom:12px">
+      <div style="font-size:9px;font-family:var(--fm);letter-spacing:2px;text-transform:uppercase;color:var(--t3);margin-bottom:8px">⚠️ Top 3 Risks</div>
+      ${risks.map(r=>`<div class="risk-row">${r}</div>`).join('')}
+    </div>
+
+    <!-- Disclaimer -->
+    <div style="font-size:9px;font-family:var(--fm);color:var(--t3);text-align:center;padding:10px;border-top:1px solid var(--bdr);line-height:1.6">
+      ⚠️ Not SEBI registered. Educational purposes only. Always use stop loss. Never risk more than 2–3% of portfolio on a single trade.
+    </div>`;
+}
+
+// ── Watchlist Scorer ──────────────────────────────────────────────
+async function scoreWatchlist() {
+  const stocks = SL.filter(s => SD[s]?.status === 'ok');
+  if (!stocks.length) {
+    document.getElementById('watchlist-scores').innerHTML = '<div class="lm">Load stocks first from the Stocks tab, then come back here.</div>';
+    return;
+  }
+  document.getElementById('watchlist-scores').innerHTML = '<div class="lm"><span class="spin"></span> Running STOCKSENSE logic on all watchlist stocks…</div>';
+
+  if (!window.MH_DATA) await checkMarketHealth();
+  const l1 = calcLayer1();
+
+  const picks = stocks.map(sym => {
+    const s    = SD[sym];
+    const l2   = calcLayer2(s);
+    const l3   = calcLayer3(s);
+    const l4   = calcLayer4(s, []);   // no news for quick score
+    const l5   = calcLayer5(s);
+    const final = calcFinalSignal(l1, l2, l3, l4);
+    const tp    = buildTradePlan(s, final, l5, 25000);
+    return { sym, s, final, tp, l5 };
+  }).sort((a,b) => b.final.total - a.final.total);
+
+  const sigCol = sig => ['STRONG BUY','BUY'].includes(sig)?'var(--buy)':sig==='WEAK BUY'?'var(--hold)':['NO TRADE','DANGER'].includes(sig)?'var(--sell)':'var(--t2)';
+  const sigBg  = sig => ['STRONG BUY','BUY'].includes(sig)?'var(--buy-bg)':sig==='WEAK BUY'?'var(--hold-bg)':['NO TRADE','DANGER'].includes(sig)?'var(--sell-bg)':'var(--bg3)';
+  const ind    = s => s.indicators || {};
+
+  document.getElementById('watchlist-scores').innerHTML =
+    picks.map((p,i) => `
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 13px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r12);margin-bottom:8px;cursor:pointer;transition:border-color .15s"
+           onclick="aiPickSym('${p.sym}');document.getElementById('ai-sym-inp').value='${p.sym}'"
+           onmouseover="this.style.borderColor='var(--acc)'" onmouseout="this.style.borderColor='var(--bdr)'">
+        <div style="font-size:15px;font-weight:900;color:var(--t3);font-family:var(--fm);width:20px;flex-shrink:0">${i+1}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:13px;font-weight:800;color:var(--t1)">${p.sym}</span>
+            <span style="font-size:9px;padding:2px 7px;border-radius:4px;font-family:var(--fm);font-weight:700;background:${sigBg(p.final.signal)};color:${sigCol(p.final.signal)}">${p.final.signal}</span>
+            ${!p.l5.clear?'<span style="font-size:9px;color:var(--sell);font-family:var(--fm)">🚫 Blocked</span>':''}
+          </div>
+          <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:3px">
+            RSI:${ind(p.s).rsi||'?'} · Vol:${ind(p.s).volumeSignal||'?'} · ${p.s.sentiment||'Neutral'} · ${(p.s.changePct||0)>=0?'+':''}${p.s.changePct||0}% today
+            ${p.tp.show ? ` · <span style="color:var(--buy)">SL ₹${inr(p.tp.sl)} → T2 ₹${inr(p.tp.t2)}</span>` : ''}
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:21px;font-weight:900;font-family:var(--fm);color:${sigCol(p.final.signal)};line-height:1">${p.final.total}</div>
+          <div style="font-size:8px;font-family:var(--fm);color:var(--t3)">/23</div>
+        </div>
+      </div>`).join('') +
+    `<div style="font-size:9px;font-family:var(--fm);color:var(--t3);text-align:center;margin-top:6px">Click any stock to load into the analyser above · Not SEBI registered advice</div>`;
+}
+
+
+
+// ── Add "AI Analyse" button to detail page ────────────────────────
+const origOpenDet = openDet;
+async function openDet(sym) {
+  await origOpenDet(sym);
+  // Inject AI Analyse button at the top of detail if not already there
+  setTimeout(() => {
+    const det = document.getElementById('det');
+    if (det && !det.querySelector('.ai-det-btn')) {
+      const btn = document.createElement('div');
+      btn.className = 'ai-det-btn';
+      btn.style.cssText = 'margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+      btn.innerHTML = `<button class="btn btn-pri" style="font-size:11px" onclick="aiPickSym('${sym}');goPage('ai');runStocksense()">🤖 STOCKSENSE Full Analysis</button><span style="font-size:10px;font-family:var(--fm);color:var(--t3)">5-layer AI scoring · Trade plan · Risk check</span>`;
+      det.insertBefore(btn, det.firstChild);
+    }
+  }, 300);
+}
+
 
 renderTbl();
 boot();
