@@ -809,6 +809,65 @@ class Handler(BaseHTTPRequestHandler):
             matches = [s for s in NSE_STOCKS if q in s["symbol"] or q in s["name"].upper()][:10]
             self.send_json({"results": matches}); return
 
+        # ── LIVE MARKET DATA — VIX, Nifty, Crude (for STOCKSENSE Layer 1) ──
+        if path == "/market-data":
+            cached = cache_get("market-data")
+            if cached:
+                self.send_json(cached); return
+
+            out = {}
+            # Fetch all 4 symbols in parallel from Yahoo Finance (free, same as stocks)
+            market_syms = {
+                "^INDIAVIX": "vix",      # India VIX
+                "^NSEI":     "nifty",    # Nifty 50
+                "CL=F":      "crude",    # WTI Crude Oil futures
+                "^GSPC":     "sp500",    # S&P 500
+            }
+            lock2 = threading.Lock()
+
+            def fetch_market_sym(yf_sym, key):
+                for base in [YF_BASE, YF_BASE2]:
+                    try:
+                        url = f"{base}/{yf_sym}?interval=1d&range=5d"
+                        req = Request(url, headers=YF_HEADERS)
+                        with urlopen(req, timeout=8) as r:
+                            data = json.loads(r.read())
+                        res = data["chart"]["result"][0]
+                        meta = res.get("meta", {})
+                        price   = float(meta.get("regularMarketPrice") or meta.get("previousClose") or 0)
+                        prev    = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
+                        chg     = round(price - prev, 2)
+                        chg_pct = round((chg / prev * 100) if prev else 0, 2)
+                        with lock2:
+                            out[key] = {
+                                "price":     round(price, 2),
+                                "change":    chg,
+                                "changePct": chg_pct,
+                                "status":    "ok"
+                            }
+                        print(f"  [MARKET-DATA] {yf_sym}: {price} ({chg_pct}%)")
+                        return
+                    except Exception as e:
+                        print(f"  [MARKET-DATA] {yf_sym} attempt failed: {e}")
+                with lock2:
+                    out[key] = {"status": "error"}
+
+            threads2 = [threading.Thread(target=fetch_market_sym, args=(yf, k))
+                        for yf, k in market_syms.items()]
+            for t in threads2: t.start()
+            for t in threads2: t.join(timeout=10)
+
+            # Also include USD/INR from commodities cache or Twelve Data
+            try:
+                usdInr_d = fetch_td("/quote", {"symbol":"USD/INR","dp":"2"})
+                usdInr_price = float(usdInr_d.get("close") or usdInr_d.get("price") or 84)
+                out["usdInr"] = {"price": usdInr_price, "status": "ok"}
+            except:
+                out["usdInr"] = {"price": 84.0, "status": "fallback"}
+
+            cache_set("market-data", out)
+            self.send_json(out); return
+
         # ── MARKET SCANNER with all 5 signals ────────────────────────────
         if path == "/scan":
             watchlist = [s.strip().upper() for s in flat.get("watchlist","").split(",") if s.strip()]
