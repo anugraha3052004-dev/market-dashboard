@@ -1334,16 +1334,71 @@ class Handler(BaseHTTPRequestHandler):
 
         # single stock with full indicators
         if path == "/stock":
-            sym = flat.get("symbol","").strip()
+            sym   = flat.get("symbol","").strip()
+            range_ = flat.get("range","30d")
             if not sym: self.send_json({"error":"Missing symbol"},400); return
-            self.send_json(fetch_yahoo(sym, flat.get("range","60d"))); return
 
-        # multiple stocks — parallel fetch, 20d range for speed
+            # Check cache first
+            clean = sym.upper().replace(".NS","").replace(".BO","").strip()
+            cached = cache_get(f"{clean}:{range_}") or cache_get(f"{clean}:30d") or cache_get(f"{clean}:20d")
+            if cached and cached.get("status") == "ok":
+                self.send_json(cached); return
+
+            # Try Twelve Data first (faster, more reliable on Render)
+            result = None
+            if API_KEY:
+                try:
+                    td_batch = fetch_td_batch_quote([clean])
+                    if clean in td_batch:
+                        result = build_stock_from_td(td_batch[clean], clean, compute_indicators=True)
+                except Exception as e:
+                    print(f"  [TD /stock] Failed for {clean}: {e}")
+
+            # Fall back to Yahoo Finance
+            if not result or result.get("status") != "ok":
+                result = fetch_yahoo(sym, range_)
+
+            self.send_json(result); return
+
+        # multiple stocks — Twelve Data batch first, Yahoo fallback
         if path == "/stocks":
             raw = flat.get("symbols","").strip()
             if not raw: self.send_json({"error":"Missing symbols"},400); return
-            syms = [s.strip() for s in raw.split(",") if s.strip()][:20]
-            self.send_json(fetch_yahoo_multi(syms, "20d")); return
+            syms = [s.strip().upper().replace(".NS","").replace(".BO","") for s in raw.split(",") if s.strip()][:20]
+
+            out = {}
+            # Check cache for each symbol first
+            need = []
+            for s in syms:
+                c = cache_get(f"{s}:30d") or cache_get(f"{s}:20d")
+                if c and c.get("status") == "ok":
+                    out[s] = c
+                else:
+                    need.append(s)
+
+            if need:
+                if API_KEY:
+                    # One TD batch call for all missing
+                    td = fetch_td_batch_quote(need)
+                    td_missing = []
+                    for s in need:
+                        if s in td:
+                            built = build_stock_from_td(td[s], s, compute_indicators=True)
+                            if built and built.get("status") == "ok":
+                                out[s] = built
+                            else:
+                                td_missing.append(s)
+                        else:
+                            td_missing.append(s)
+                    # Yahoo only for what TD couldn't get
+                    if td_missing:
+                        yahoo = fetch_yahoo_multi(td_missing, "20d")
+                        out.update(yahoo)
+                else:
+                    yahoo = fetch_yahoo_multi(need, "20d")
+                    out.update(yahoo)
+
+            self.send_json(out); return
 
         # stock news — with impact scoring
         if path == "/news":
