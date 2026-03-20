@@ -526,7 +526,17 @@ def fetch_yahoo(symbol, range_="30d"):
         except Exception as e:
             print(f"  [YAHOO] Attempt {attempt} failed for {yf_sym}: {type(e).__name__}: {e}")
     print(f"  [YAHOO] ALL ATTEMPTS FAILED for {yf_sym}")
-    return {"symbol":clean,"status":"error","error":f"Could not load {clean} from Yahoo Finance"}
+    # Fallback: try Twelve Data for basic price data
+    if API_KEY:
+        print(f"  [TD FALLBACK] Trying Twelve Data for {clean}...")
+        td_batch = fetch_td_batch_quote([clean])
+        if clean in td_batch:
+            stock = build_stock_from_td(td_batch[clean], clean, compute_indicators=True)
+            if stock:
+                print(f"  [TD FALLBACK] OK for {clean} via Twelve Data")
+                cache_set(cache_key, stock)
+                return stock
+    return {"symbol":clean,"status":"error","error":f"Could not load {clean} from Yahoo Finance or Twelve Data"}
 
 def fetch_yahoo_multi(symbols, range_="30d"):
     """
@@ -752,6 +762,185 @@ def fetch_td(path, params):
             return json.loads(raw)
     except Exception as e:
         return {"error":str(e)}
+
+
+# ── TWELVE DATA BATCH QUOTE (1 API call = 30 stocks instantly) ────────────────
+# This is the KEY optimization — replaces slow Yahoo per-stock fetching for scan
+def fetch_td_batch_quote(symbols):
+    """
+    Fetch current price + basic data for multiple NSE stocks in ONE API call.
+    Twelve Data free plan: supports batch quotes, 8 calls/min, 800/day.
+    Returns dict: {symbol: {price, change, changePct, volume, high52w, low52w, ...}}
+    """
+    if not API_KEY:
+        return {}
+
+    # Format symbols for NSE: "RELIANCE:NSE,TCS:NSE,..."
+    td_syms = ",".join([f"{s}:NSE" for s in symbols])
+
+    # Check cache (30 min TTL for batch quotes)
+    cache_key = f"td_batch:{','.join(sorted(symbols[:5]))}"
+    cached = cache_get(cache_key)
+    if cached:
+        print(f"  [TD BATCH] Cache hit for {len(symbols)} symbols")
+        return cached
+
+    print(f"  [TD BATCH] Fetching {len(symbols)} stocks in 1 API call...")
+    try:
+        url = f"{TWELVE_DATA_BASE}/quote?symbol={td_syms}&dp=2&apikey={API_KEY}"
+        req = Request(url, headers={"User-Agent": "MarketDashboard/1.0"})
+        with urlopen(req, timeout=15) as r:
+            raw = json.loads(r.read().decode())
+
+        result = {}
+        # Handle both single and batch response formats
+        if isinstance(raw, dict) and "symbol" in raw:
+            # Single stock response
+            raw = {raw["symbol"]: raw}
+
+        for td_sym, d in raw.items():
+            if not isinstance(d, dict) or d.get("status") == "error":
+                continue
+            # Extract NSE symbol (remove :NSE suffix)
+            sym = td_sym.replace(":NSE", "").replace(":BSE", "")
+            try:
+                price   = float(d.get("close") or d.get("price") or 0)
+                prev    = float(d.get("previous_close") or price)
+                change  = float(d.get("change") or 0)
+                chg_pct = float(d.get("percent_change") or 0)
+                vol     = int(float(d.get("volume") or 0))
+                h52     = float(d.get("fifty_two_week", {}).get("high") or d.get("high") or price*1.3)
+                l52     = float(d.get("fifty_two_week", {}).get("low")  or d.get("low")  or price*0.7)
+                name    = d.get("name") or sym
+                if price > 0:
+                    result[sym] = {
+                        "symbol":    sym,
+                        "name":      name,
+                        "price":     round(price, 2),
+                        "change":    round(change, 2),
+                        "changePct": round(chg_pct, 2),
+                        "prevClose": round(prev, 2),
+                        "volume":    vol,
+                        "high52w":   round(h52, 2),
+                        "low52w":    round(l52, 2),
+                        "source":    "twelvedata",
+                        "status":    "ok"
+                    }
+            except Exception as ex:
+                print(f"  [TD BATCH] Parse error for {td_sym}: {ex}")
+
+        print(f"  [TD BATCH] Got {len(result)}/{len(symbols)} stocks OK")
+        if result:
+            cache_set(cache_key, result)
+        return result
+
+    except Exception as e:
+        print(f"  [TD BATCH] Failed: {e}")
+        return {}
+
+
+def fetch_td_time_series(symbol, outputsize=30):
+    """
+    Fetch daily OHLCV history for ONE stock from Twelve Data.
+    Used to compute RSI, MACD, SMA when Yahoo fails.
+    """
+    if not API_KEY:
+        return None
+
+    cache_key = f"td_ts:{symbol}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        data = fetch_td("/time_series", {
+            "symbol":     f"{symbol}:NSE",
+            "interval":   "1day",
+            "outputsize": str(outputsize),
+            "dp":         "2"
+        })
+        if "values" not in data:
+            return None
+
+        vals   = data["values"]
+        closes = [float(v["close"]) for v in reversed(vals) if v.get("close")]
+        vols   = [int(float(v.get("volume",0))) for v in reversed(vals)]
+
+        result = {"closes": closes, "volumes": vols, "symbol": symbol}
+        cache_set(cache_key, result)
+        return result
+    except Exception as e:
+        print(f"  [TD TS] {symbol}: {e}")
+        return None
+
+
+def build_stock_from_td(td_data, symbol, compute_indicators=True):
+    """
+    Build a full stock dict from Twelve Data quote + optional indicator computation.
+    Falls back to Yahoo if TD data is missing indicators.
+    """
+    if not td_data or td_data.get("status") != "ok":
+        return None
+
+    price    = td_data["price"]
+    closes_c = []
+    vols_c   = []
+
+    # Try to get historical data for indicator computation
+    if compute_indicators:
+        # First check if Yahoo already has this cached
+        yahoo_cached = cache_get(f"{symbol}:20d") or cache_get(f"{symbol}:30d")
+        if yahoo_cached and yahoo_cached.get("status") == "ok":
+            return yahoo_cached  # Use full Yahoo data if available
+
+        # Try Twelve Data time series
+        ts = fetch_td_time_series(symbol, 30)
+        if ts:
+            closes_c = ts["closes"]
+            vols_c   = ts["volumes"]
+
+    # Compute indicators if we have history
+    sma20 = calc_sma(closes_c, 20) if closes_c else None
+    sma50 = calc_sma(closes_c, 50) if len(closes_c) >= 50 else None
+    ema9  = calc_ema(closes_c, 9)  if closes_c else None
+    rsi   = calc_rsi(closes_c)     if closes_c else None
+    macd, sig_line, macd_hist = calc_macd(closes_c) if len(closes_c) >= 26 else (None, None, None)
+    support, resistance = calc_support_resistance(closes_c) if closes_c else (None, None)
+    vol_sig = calc_volume_signal(vols_c) if vols_c else "normal"
+
+    spread = ((price - support) / support * 100) if support else None
+    confidence = calc_confidence(rsi, macd_hist, vol_sig, td_data["changePct"], spread)
+    rec, sentiment, reasons, strat_pts = get_recommendation(
+        rsi, macd_hist, td_data["changePct"], vol_sig, price,
+        support, resistance, sma20, sma50, ema9
+    )
+    trade_levels = calc_trade_levels(price, support, resistance, rec, rsi, sma20)
+
+    return {
+        "symbol":        symbol,
+        "name":          td_data.get("name", symbol),
+        "price":         price,
+        "change":        td_data["change"],
+        "changePct":     td_data["changePct"],
+        "prevClose":     td_data["prevClose"],
+        "volume":        td_data["volume"],
+        "high52w":       td_data["high52w"],
+        "low52w":        td_data["low52w"],
+        "indicators": {
+            "sma20": sma20, "sma50": sma50, "ema9": ema9,
+            "rsi": rsi, "macd": macd, "macdSignal": sig_line,
+            "macdHist": macd_hist, "support": support,
+            "resistance": resistance, "volumeSignal": vol_sig,
+        },
+        "recommendation":  rec,
+        "sentiment":       sentiment,
+        "confidence":      confidence,
+        "reasons":         reasons,
+        "strategyPoints":  strat_pts,
+        "tradeLevels":     trade_levels,
+        "source":          "twelvedata",
+        "status":          "ok"
+    }
 
 # ── STOCKSENSE BATCH SCORER (pure Python, same rules as frontend JS) ──────────
 def score_stock_python(d):
@@ -1534,10 +1723,48 @@ class Handler(BaseHTTPRequestHandler):
 
             print(f"  [SCAN-FAST] mode={mode}, candidates={len(candidates)}")
 
-            # Fetch ALL in one parallel batch (no sequential batching)
-            # fetch_yahoo_multi handles parallelism internally
-            all_data = fetch_yahoo_multi(candidates, "20d")
-            print(f"  [SCAN-FAST] Fetched {len(all_data)} stocks")
+            # ── HYBRID FETCH STRATEGY ─────────────────────────────
+            # Step 1: Try Twelve Data batch quote (1 API call, instant)
+            # Step 2: For missing/failed stocks, fallback to Yahoo Finance
+            # Step 3: For stocks needing indicators, use cached Yahoo data
+
+            all_data = {}
+
+            if API_KEY:
+                # ONE API call gets all stocks at once — much faster than Yahoo
+                print(f"  [SCAN-FAST] Using Twelve Data batch quote for {len(candidates)} stocks")
+                td_results = fetch_td_batch_quote(candidates)
+
+                for sym, td in td_results.items():
+                    # Check if we have cached Yahoo data with full indicators
+                    yahoo_cached = cache_get(f"{sym}:20d") or cache_get(f"{sym}:30d")
+                    if yahoo_cached and yahoo_cached.get("status") == "ok":
+                        # Update price from TD (fresher) but keep Yahoo indicators
+                        yahoo_cached["price"]     = td["price"]
+                        yahoo_cached["change"]    = td["change"]
+                        yahoo_cached["changePct"] = td["changePct"]
+                        yahoo_cached["volume"]    = td["volume"]
+                        all_data[sym] = yahoo_cached
+                    else:
+                        # Build stock dict from TD data (limited indicators)
+                        stock = build_stock_from_td(td, sym, compute_indicators=False)
+                        if stock:
+                            all_data[sym] = stock
+
+                print(f"  [SCAN-FAST] TD got {len(td_results)} stocks, built {len(all_data)}")
+
+                # Fallback: fetch any missing stocks from Yahoo
+                missing = [s for s in candidates if s not in all_data]
+                if missing:
+                    print(f"  [SCAN-FAST] Yahoo fallback for {len(missing)} missing stocks")
+                    yahoo_data = fetch_yahoo_multi(missing[:10], "20d")
+                    all_data.update({k:v for k,v in yahoo_data.items() if v.get("status")=="ok"})
+            else:
+                # No API key — use Yahoo Finance only
+                print(f"  [SCAN-FAST] No Twelve Data key — using Yahoo Finance")
+                all_data = fetch_yahoo_multi(candidates, "20d")
+
+            print(f"  [SCAN-FAST] Total stocks ready: {len(all_data)}")
 
             # Score each stock
             scored = []
@@ -1557,9 +1784,10 @@ class Handler(BaseHTTPRequestHandler):
                 "qualified": len(buys),
                 "mode":      mode,
                 "timestamp": time.strftime("%H:%M IST"),
+                "data_source": "twelvedata+yahoo" if API_KEY else "yahoo"
             }
 
-            # Cache for 10 minutes
+            # Cache for 30 minutes
             cache_set(cache_key, result)
             self.send_json(result); return
 
@@ -1906,7 +2134,14 @@ def run():
                   "SBIN","BAJFINANCE","ITC","BHARTIARTL","WIPRO",
                   "AXISBANK","TATAMOTORS","HCLTECH","SUNPHARMA","LT"]
         print("  [STARTUP] Pre-warming cache for top 15 stocks…")
-        fetch_yahoo_multi(TOP_15, "20d")
+        if API_KEY:
+            # Use Twelve Data batch quote — 1 call for all 15 stocks
+            td_results = fetch_td_batch_quote(TOP_15)
+            print(f"  [STARTUP] TD pre-warm: {len(td_results)}/15 stocks")
+            # Also fetch Yahoo in background for full indicators
+            fetch_yahoo_multi([s for s in TOP_15 if s not in td_results], "20d")
+        else:
+            fetch_yahoo_multi(TOP_15, "20d")
         print("  [STARTUP] Cache pre-warm done.")
         # Also run scan-fast in background so first click is instant
         try:
