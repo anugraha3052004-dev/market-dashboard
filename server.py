@@ -481,7 +481,7 @@ def fetch_yahoo_multi(symbols, range_="30d"):
     for batch in batches:
         threads = [threading.Thread(target=fetch_one, args=(s,)) for s in batch]
         for t in threads: t.start()
-        for t in threads: t.join(timeout=12)
+        for t in threads: t.join(timeout=6)  # 6s timeout — faster, Yahoo is usually quick
         # Small pause between batches only if there are multiple batches
         if len(batches) > 1:
             time.sleep(0.2)
@@ -1431,54 +1431,69 @@ class Handler(BaseHTTPRequestHandler):
 
         # ── FAST SCAN — returns top picks scored server-side (fast!) ──
         if path == "/scan-fast":
-            # Returns top 10 picks from the NSE universe, scored server-side
-            # Much faster than client fetching one by one
-            mode     = flat.get("mode", "nse")   # watchlist|nse|etf|all
+            mode      = flat.get("mode", "nse")
             watchlist = [s.strip().upper() for s in flat.get("watchlist","").split(",") if s.strip()]
 
-            # Pick universe
+            # Check cache first — scan results cached for 10 minutes
+            cache_key = f"scan-fast-{mode}"
+            cached = cache_get(cache_key)
+            if cached:
+                print(f"  [SCAN-FAST] Cache hit for {mode}")
+                self.send_json(cached); return
+
+            # SMALL universe — only fetch what we need, fast
+            # Key insight: top 15 most liquid = best signals anyway
+            TOP_LIQUID = [
+                "RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","SBIN",
+                "BAJFINANCE","HINDUNILVR","ITC","BHARTIARTL","KOTAKBANK",
+                "WIPRO","AXISBANK","MARUTI","TATAMOTORS"
+            ]
+            NSE_30 = TOP_LIQUID + [
+                "SUNPHARMA","LT","HCLTECH","JSWSTEEL","TATASTEEL",
+                "NTPC","ONGC","POWERGRID","ADANIENT","DRREDDY",
+                "CIPLA","TITAN","NESTLEIND","TECHM","HINDALCO"
+            ]
+            ETF_LIST = ["GOLDBEES","SILVERBEES","NIFTYBEES","JUNIORBEES","COPPERBEES"]
+
             if mode == "etf":
-                candidates = [s["symbol"] for s in NSE_STOCKS if s.get("sector") == "ETF"]
+                candidates = ETF_LIST
             elif mode == "watchlist":
-                candidates = watchlist if watchlist else [s["symbol"] for s in NSE_STOCKS[:15]]
+                candidates = watchlist[:15] if watchlist else TOP_LIQUID[:10]
             elif mode == "all":
-                candidates = [s["symbol"] for s in NSE_STOCKS][:60]
-            else:  # nse — top 40 liquid
-                candidates = [s["symbol"] for s in NSE_STOCKS if s.get("sector") != "ETF"][:40]
+                candidates = NSE_30 + ETF_LIST  # 35 stocks max
+            else:  # nse — top 30 only
+                candidates = NSE_30
 
             print(f"  [SCAN-FAST] mode={mode}, candidates={len(candidates)}")
 
-            # Fetch in parallel batches (uses existing fetch_yahoo_multi)
-            all_data = {}
-            FSCAN_BATCH = 10
-            for i in range(0, len(candidates), FSCAN_BATCH):
-                batch = candidates[i:i+FSCAN_BATCH]
-                results = fetch_yahoo_multi(batch, "20d")
-                all_data.update(results)
-                time.sleep(0.1)
+            # Fetch ALL in one parallel batch (no sequential batching)
+            # fetch_yahoo_multi handles parallelism internally
+            all_data = fetch_yahoo_multi(candidates, "20d")
+            print(f"  [SCAN-FAST] Fetched {len(all_data)} stocks")
 
-            # Score each stock using Python 5-layer logic
+            # Score each stock
             scored = []
             for sym, d in all_data.items():
                 result = score_stock_python(d)
                 if result:
                     scored.append(result)
 
-            # Sort by confidence desc
             scored.sort(key=lambda x: (-x["confidence"], -x["total"]))
-
-            # Separate buys from others
             buys   = [s for s in scored if s["signal"] in ("STRONG BUY","BUY","WEAK BUY")]
             others = [s for s in scored if s["signal"] not in ("STRONG BUY","BUY","WEAK BUY")]
 
-            self.send_json({
+            result = {
                 "picks":     buys[:10],
                 "others":    others[:5],
                 "scanned":   len(all_data),
                 "qualified": len(buys),
                 "mode":      mode,
                 "timestamp": time.strftime("%H:%M IST"),
-            }); return
+            }
+
+            # Cache for 10 minutes
+            cache_set(cache_key, result)
+            self.send_json(result); return
 
         # ── BATCH SCAN RESULTS ───────────────────────────────────────
         if path == "/batch-scan":
