@@ -1039,7 +1039,7 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
           </select>
         </div>
       </div>
-      <div class="scan-universe" id="scan-universe-lbl">Universe: Your watchlist (3 stocks)</div>
+      <div class="scan-universe" id="scan-universe-lbl">Universe: Your watchlist</div>
 
       <!-- Output -->
       <div id="smart-scan-out">
@@ -3164,7 +3164,7 @@ async function runSmartScan() {
     const watchlistStr = SL.join(',');
     const scanData = await api(
       `/scan-fast?mode=${SCAN_MODE}&watchlist=${watchlistStr}`,
-      60000  // 60s timeout for full scan
+      45000  // 45s timeout
     );
 
     ssStep(3, `Scored ${scanData.scanned||0} stocks, ${scanData.qualified||0} qualified…`);
@@ -3387,7 +3387,22 @@ async function runSmartScan() {
 // Auto-update universe label when page loads
 function initScannerLabel() {
   const el = document.getElementById('scan-universe-lbl');
-  if(el) el.textContent = `Universe: Your watchlist (${SL.length} stocks)`;
+  if(el) el.textContent = `Universe: Your watchlist (${SL.length} stocks) — results cached 10 mins`;
+}
+
+// Update universe label when mode changes
+function setUniverse(mode, btn) {
+  SCAN_MODE = mode;
+  document.querySelectorAll('.scan-opt-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  const labels = {
+    watchlist: `Your watchlist (${SL.length} stocks) — fastest`,
+    nse:       'NSE Top 30 stocks — ~30 sec',
+    etf:       'ETFs only (5 stocks) — fastest',
+    all:       'NSE Top 30 + ETFs (35 stocks) — ~45 sec'
+  };
+  const el = document.getElementById('scan-universe-lbl');
+  if(el) el.textContent = 'Universe: ' + (labels[mode] || mode) + ' · results cached 10 mins';
 }
 
 
