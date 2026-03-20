@@ -779,7 +779,7 @@ def fetch_td_batch_quote(symbols):
     td_syms = ",".join([f"{s}:NSE" for s in symbols])
 
     # Check cache (30 min TTL for batch quotes)
-    cache_key = f"td_batch:{','.join(sorted(symbols[:5]))}"
+    cache_key = f"td_batch:{len(symbols)}:{sorted(symbols)[0] if symbols else 'empty'}"
     cached = cache_get(cache_key)
     if cached:
         print(f"  [TD BATCH] Cache hit for {len(symbols)} symbols")
@@ -1691,12 +1691,13 @@ class Handler(BaseHTTPRequestHandler):
             mode      = flat.get("mode", "nse")
             watchlist = [s.strip().upper() for s in flat.get("watchlist","").split(",") if s.strip()]
 
-            # Check cache first — scan results cached for 10 minutes
-            cache_key = f"scan-fast-{mode}"
+            # Check result cache first (30 min TTL)
+            cache_key = f"scan-fast-{mode}-v2"
             cached = cache_get(cache_key)
             if cached:
-                print(f"  [SCAN-FAST] Cache hit for {mode}")
+                print(f"  [SCAN-FAST] Cache HIT for mode={mode}")
                 self.send_json(cached); return
+            print(f"  [SCAN-FAST] Cache MISS for mode={mode} — fetching fresh")
 
             # SMALL universe — only fetch what we need, fast
             # Key insight: top 15 most liquid = best signals anyway
@@ -1723,48 +1724,61 @@ class Handler(BaseHTTPRequestHandler):
 
             print(f"  [SCAN-FAST] mode={mode}, candidates={len(candidates)}")
 
-            # ── HYBRID FETCH STRATEGY ─────────────────────────────
-            # Step 1: Try Twelve Data batch quote (1 API call, instant)
-            # Step 2: For missing/failed stocks, fallback to Yahoo Finance
-            # Step 3: For stocks needing indicators, use cached Yahoo data
+            # ── 3-LAYER FAST FETCH STRATEGY ───────────────────────
+            # Layer A: Already in memory cache → instant (0ms)
+            # Layer B: Twelve Data batch quote → 1 API call (2-3s)  
+            # Layer C: Yahoo Finance for remaining → parallel (10-15s max)
+            # Result: Most stocks from cache/TD, few from Yahoo = FAST
 
             all_data = {}
 
-            if API_KEY:
-                # ONE API call gets all stocks at once — much faster than Yahoo
-                print(f"  [SCAN-FAST] Using Twelve Data batch quote for {len(candidates)} stocks")
-                td_results = fetch_td_batch_quote(candidates)
+            # LAYER A: Check memory/disk cache for each stock
+            already_cached = []
+            need_fetch     = []
+            for sym in candidates:
+                cached_stock = cache_get(f"{sym}:20d") or cache_get(f"{sym}:30d") or cache_get(f"{sym}:60d")
+                if cached_stock and cached_stock.get("status") == "ok":
+                    all_data[sym] = cached_stock
+                    already_cached.append(sym)
+                else:
+                    need_fetch.append(sym)
 
-                for sym, td in td_results.items():
-                    # Check if we have cached Yahoo data with full indicators
-                    yahoo_cached = cache_get(f"{sym}:20d") or cache_get(f"{sym}:30d")
-                    if yahoo_cached and yahoo_cached.get("status") == "ok":
-                        # Update price from TD (fresher) but keep Yahoo indicators
-                        yahoo_cached["price"]     = td["price"]
-                        yahoo_cached["change"]    = td["change"]
-                        yahoo_cached["changePct"] = td["changePct"]
-                        yahoo_cached["volume"]    = td["volume"]
-                        all_data[sym] = yahoo_cached
-                    else:
-                        # Build stock dict from TD data (limited indicators)
-                        stock = build_stock_from_td(td, sym, compute_indicators=False)
-                        if stock:
-                            all_data[sym] = stock
+            print(f"  [SCAN-FAST] Layer A cache: {len(already_cached)} stocks ready, {len(need_fetch)} to fetch")
 
-                print(f"  [SCAN-FAST] TD got {len(td_results)} stocks, built {len(all_data)}")
+            if need_fetch:
+                if API_KEY:
+                    # LAYER B: Twelve Data batch — 1 call for ALL missing stocks
+                    print(f"  [SCAN-FAST] Layer B: TD batch for {len(need_fetch)} stocks")
+                    td_results = fetch_td_batch_quote(need_fetch)
 
-                # Fallback: fetch any missing stocks from Yahoo
-                missing = [s for s in candidates if s not in all_data]
-                if missing:
-                    print(f"  [SCAN-FAST] Yahoo fallback for {len(missing)} missing stocks")
-                    yahoo_data = fetch_yahoo_multi(missing[:10], "20d")
+                    td_got   = []
+                    still_missing = []
+                    for sym in need_fetch:
+                        if sym in td_results:
+                            td = td_results[sym]
+                            stock = build_stock_from_td(td, sym, compute_indicators=False)
+                            if stock:
+                                all_data[sym] = stock
+                                td_got.append(sym)
+                            else:
+                                still_missing.append(sym)
+                        else:
+                            still_missing.append(sym)
+
+                    print(f"  [SCAN-FAST] Layer B TD: {len(td_got)} got, {len(still_missing)} still missing")
+
+                    # LAYER C: Yahoo only for stocks TD couldn't get (usually 0-3)
+                    if still_missing:
+                        print(f"  [SCAN-FAST] Layer C: Yahoo for {len(still_missing)} stocks")
+                        yahoo_data = fetch_yahoo_multi(still_missing[:8], "20d")
+                        all_data.update({k:v for k,v in yahoo_data.items() if v.get("status")=="ok"})
+                else:
+                    # No Twelve Data key → Yahoo only (slower but works)
+                    print(f"  [SCAN-FAST] No TD key — Yahoo for {len(need_fetch)} stocks")
+                    yahoo_data = fetch_yahoo_multi(need_fetch, "20d")
                     all_data.update({k:v for k,v in yahoo_data.items() if v.get("status")=="ok"})
-            else:
-                # No API key — use Yahoo Finance only
-                print(f"  [SCAN-FAST] No Twelve Data key — using Yahoo Finance")
-                all_data = fetch_yahoo_multi(candidates, "20d")
 
-            print(f"  [SCAN-FAST] Total stocks ready: {len(all_data)}")
+            print(f"  [SCAN-FAST] Total ready: {len(all_data)}/{len(candidates)} stocks")
 
             # Score each stock
             scored = []
@@ -1787,8 +1801,9 @@ class Handler(BaseHTTPRequestHandler):
                 "data_source": "twelvedata+yahoo" if API_KEY else "yahoo"
             }
 
-            # Cache for 30 minutes
+            # Cache result for 30 minutes — next click is INSTANT
             cache_set(cache_key, result)
+            print(f"  [SCAN-FAST] Done. Cached for 30 min. Next click = instant.")
             self.send_json(result); return
 
         # ── BATCH SCAN RESULTS ───────────────────────────────────────
@@ -2134,15 +2149,11 @@ def run():
                   "SBIN","BAJFINANCE","ITC","BHARTIARTL","WIPRO",
                   "AXISBANK","TATAMOTORS","HCLTECH","SUNPHARMA","LT"]
         print("  [STARTUP] Pre-warming cache for top 15 stocks…")
-        if API_KEY:
-            # Use Twelve Data batch quote — 1 call for all 15 stocks
-            td_results = fetch_td_batch_quote(TOP_15)
-            print(f"  [STARTUP] TD pre-warm: {len(td_results)}/15 stocks")
-            # Also fetch Yahoo in background for full indicators
-            fetch_yahoo_multi([s for s in TOP_15 if s not in td_results], "20d")
-        else:
-            fetch_yahoo_multi(TOP_15, "20d")
-        print("  [STARTUP] Cache pre-warm done.")
+        # Fetch Yahoo data for top 15 — this puts them in cache as "SYM:20d"
+        # so scan-fast Layer A finds them instantly
+        yahoo_warm = fetch_yahoo_multi(TOP_15, "20d")
+        warm_count = sum(1 for v in yahoo_warm.values() if v.get("status")=="ok")
+        print(f"  [STARTUP] Pre-warm done: {warm_count}/15 stocks cached")
         # Also run scan-fast in background so first click is instant
         try:
             from_cache = cache_get("scan-fast-nse")
