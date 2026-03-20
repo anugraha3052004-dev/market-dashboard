@@ -1,10 +1,13 @@
 """
-India Market Dashboard - Backend v4
+India Market Dashboard - Backend v5
 Commodities  → Twelve Data + gold-api.com (free)
 NSE Stocks   → Yahoo Finance (parallel + 5-min cache)
 News         → Yahoo Finance RSS (free)
+Batch Scan   → End-of-day auto scan at 3:30 PM IST (saved to file)
+Price Alerts → Monitor user-set alerts every 5 minutes
+Universe     → 150 liquid NSE stocks + ETFs
 """
-import os, json, time, math, threading, re
+import os, json, time, math, threading, re, datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, urlencode
 from urllib.request import urlopen, Request
@@ -39,6 +42,72 @@ def cache_get(key):
 def cache_set(key, data):
     with _cache_lck:
         _cache[key] = {"data": data, "ts": time.time()}
+# ── BATCH SCAN STORAGE (end-of-day results) ─────────────────────────────────
+SCAN_RESULTS_FILE = "scan_results.json"
+_scan_lock = threading.Lock()
+
+def save_scan_results(results):
+    """Save end-of-day scan results to disk."""
+    with _scan_lock:
+        try:
+            data = {
+                "timestamp": time.strftime("%Y-%m-%d %H:%M IST"),
+                "date":      time.strftime("%Y-%m-%d"),
+                "results":   results
+            }
+            with open(SCAN_RESULTS_FILE, "w") as f:
+                json.dump(data, f)
+            print(f"  [BATCH SCAN] Saved {len(results)} results to {SCAN_RESULTS_FILE}")
+        except Exception as e:
+            print(f"  [BATCH SCAN] Save error: {e}")
+
+def load_scan_results():
+    """Load last saved scan results."""
+    with _scan_lock:
+        try:
+            with open(SCAN_RESULTS_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return {"timestamp": None, "date": None, "results": []}
+
+# ── PRICE ALERTS STORAGE ─────────────────────────────────────────────────────
+ALERTS_FILE = "price_alerts.json"
+_alerts_lock = threading.Lock()
+
+def load_alerts():
+    with _alerts_lock:
+        try:
+            with open(ALERTS_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return []
+
+def save_alerts(alerts):
+    with _alerts_lock:
+        try:
+            with open(ALERTS_FILE, "w") as f:
+                json.dump(alerts, f)
+        except Exception as e:
+            print(f"  [ALERTS] Save error: {e}")
+
+# Triggered alerts (in-memory, shown once per session)
+_triggered_alerts = []
+_triggered_lock   = threading.Lock()
+
+def add_triggered(alert):
+    with _triggered_lock:
+        _triggered_alerts.append(alert)
+        if len(_triggered_alerts) > 50:
+            _triggered_alerts.pop(0)
+
+def get_triggered():
+    with _triggered_lock:
+        return list(_triggered_alerts)
+
+def clear_triggered():
+    with _triggered_lock:
+        _triggered_alerts.clear()
+
 
 # ── TECHNICAL INDICATORS ────────────────────────────────────────────────────
 def calc_sma(closes, period):
@@ -616,6 +685,329 @@ def fetch_td(path, params):
     except Exception as e:
         return {"error":str(e)}
 
+# ── STOCKSENSE BATCH SCORER (pure Python, same rules as frontend JS) ──────────
+def score_stock_python(d):
+    """Run 5-layer STOCKSENSE scoring on a stock dict from fetch_yahoo.
+    Returns dict with score, signal, setup, confidence, entry, sl, t1, t2.
+    Same rules as the frontend JS calcLayer2/calcLayer3/calcFinalSignal."""
+    if not d or d.get('status') != 'ok':
+        return None
+
+    ind   = d.get('indicators', {})
+    price = d.get('price', 0)
+    if not price:
+        return None
+
+    rsi      = float(ind.get('rsi') or 50)
+    macd_h   = float(ind.get('macdHist') or 0)
+    macd_l   = float(ind.get('macd') or 0)
+    vol_sig  = ind.get('volumeSignal', 'normal')
+    sma20    = float(ind.get('sma20') or 0)
+    sma50    = float(ind.get('sma50') or 0)
+    support  = float(ind.get('support') or 0)
+    resist   = float(ind.get('resistance') or 0)
+    h52      = float(d.get('high52w') or price * 1.3)
+    l52      = float(d.get('low52w')  or price * 0.7)
+    chg_pct  = float(d.get('changePct') or 0)
+    conf     = float(d.get('confidence') or 50)
+    rec      = d.get('recommendation', 'HOLD')
+    sent     = d.get('sentiment', 'Neutral')
+
+    # Layer 2: Technical (0-7)
+    l2 = 0.0
+    # Moving averages
+    if sma20 and sma50 and price < sma20 and price < sma50:
+        l2 -= 2
+    else:
+        if sma20 and price > sma20: l2 += 0.5
+        if sma50 and price > sma50: l2 += 1.0
+    # RSI
+    if   rsi < 30:  l2 += 2.0
+    elif rsi < 45:  l2 += 1.5
+    elif rsi < 60:  l2 += 1.0
+    elif rsi < 70:  l2 += 0.5
+    else:           l2 -= 1.0
+    # MACD
+    if   macd_h > 0 and macd_l > 0: l2 += 1.5
+    elif macd_h > 0:                 l2 += 1.0
+    elif macd_h < 0 and macd_l < 0: l2 -= 1.0
+    # Volume
+    if   vol_sig == 'high' and chg_pct < -1: l2 -= 1.0
+    elif vol_sig == 'high':                  l2 += 1.5
+    elif vol_sig == 'normal':                l2 += 0.5
+    # Support/Resistance
+    if support and price:
+        dist_s = ((price - support) / support) * 100
+        if   dist_s <= 2 and chg_pct >= 0: l2 += 1.0
+        elif dist_s <= 5:                  l2 += 0.5
+    if resist and price and price >= resist * 0.998: l2 += 1.0
+    # 52W position
+    pct_above_low = ((price - l52) / l52 * 100) if l52 > 0 else 50
+    pct_below_hi  = ((h52 - price) / h52 * 100) if h52 > 0 else 10
+    if   pct_above_low <= 5:  l2 += 1.0
+    elif pct_above_low <= 30: l2 += 0.5
+    elif pct_below_hi  <= 3:  l2 -= 0.5
+    l2 = max(0, min(7, round(l2, 1)))
+
+    # Layer 3: Fundamentals proxy (0-6)
+    l3 = 0.0
+    if   conf >= 75: l3 += 2.0
+    elif conf >= 60: l3 += 1.0
+    elif conf >= 45: l3 += 0.5
+    if sma20 and sma50 and price > sma20 and sma20 > sma50: l3 += 1.0
+    elif sma50 and price > sma50: l3 += 0.5
+    elif sma20 and sma50 and price < sma20 and price < sma50: l3 -= 1.0
+    if   rsi < 35:  l3 += 1.0
+    elif rsi < 50:  l3 += 0.5
+    elif rsi >= 65: l3 -= 0.5
+    if   vol_sig == 'high' and chg_pct > 0:  l3 += 1.0
+    elif vol_sig == 'high' and chg_pct < 0:  l3 -= 0.5
+    elif vol_sig == 'high':                  l3 += 0.5
+    if   sent == 'Bullish': l3 += 1.0
+    elif sent == 'Neutral': l3 += 0.5
+    elif sent == 'Bearish': l3 -= 0.5
+    if   rec == 'BUY':   l3 += 0.5
+    elif rec == 'AVOID': l3 -= 0.5
+    l3 = max(0, min(6, round(l3, 1)))
+
+    # Layer 4: News proxy from sentiment (0-5)
+    l4 = 0.0
+    if   sent == 'Bullish' and rec == 'BUY':   l4 = 2.0
+    elif sent == 'Bullish':                     l4 = 1.0
+    elif sent == 'Bearish' and rec == 'AVOID':  l4 = -2.0
+    elif sent == 'Bearish':                     l4 = -1.0
+    if chg_pct > 2 and vol_sig == 'high':       l4 = min(l4 + 1.0, 5)
+    if chg_pct < -3:                            l4 = max(l4 - 1.0, -5)
+    l4 = max(-5, min(5, round(l4, 1)))
+
+    # Layer 1: Use market health cache (3 = CAUTION default)
+    l1 = 3.0
+    mh = cache_get("market-data")
+    if mh:
+        vix   = float((mh.get('vix') or {}).get('price') or 15)
+        crude = float((mh.get('crude') or {}).get('price') or 78)
+        nchg  = float((mh.get('nifty') or {}).get('changePct') or 0)
+        s5chg = float((mh.get('sp500') or {}).get('changePct') or 0)
+        l1 = 0.0
+        l1 += (2 if nchg >= 1 else 1 if nchg >= 0.3 else 0 if nchg > -0.3 else -1 if nchg >= -1 else -2)
+        l1 += (1 if vix < 13 else 0.5 if vix < 16 else 0 if vix < 20 else -1)
+        l1 += (1 if crude < 80 else 0.5 if crude < 90 else 0 if crude < 100 else -1)
+        l1 += (1 if s5chg >= 0.5 else 0.5 if s5chg >= 0 else 0 if s5chg >= -1 else -1)
+        l1 += (0.5 if datetime.datetime.now().weekday() != 3 else 0)
+        l1 = max(0, min(5, round(l1, 1)))
+
+    total = l1 + l2 + l3 + l4
+
+    # Signal
+    if   total >= 19: signal = 'STRONG BUY'
+    elif total >= 15: signal = 'BUY'
+    elif total >= 11: signal = 'WEAK BUY'
+    elif total >= 7:  signal = 'WATCH'
+    elif total >= 0:  signal = 'NO TRADE'
+    else:             signal = 'DANGER'
+
+    # Setup type
+    if resist and price >= resist * 0.998:                             setup = 'Breakout'
+    elif resist and price >= resist * 0.97 and chg_pct > 1:           setup = 'Near Breakout'
+    elif support and price <= support * 1.025 and chg_pct >= 0:       setup = 'Support Bounce'
+    elif sma20 and abs(price - sma20) / sma20 < 0.015 and chg_pct > 0: setup = 'Pullback Buy'
+    elif chg_pct > 1.5 and vol_sig == 'high':                         setup = 'Momentum'
+    elif rsi < 38:                                                     setup = 'Oversold Reversal'
+    else:                                                              setup = 'Consolidation'
+
+    # Confidence (0-100)
+    conf_score = min(95, max(25, round((total / 23) * 100)))
+    layers_pos = sum([l1/5 >= 0.6, l2/7 >= 0.6, l3/6 >= 0.6, l4/5 >= 0.6 if l4 > 0 else False])
+    if layers_pos >= 3: conf_score = min(95, conf_score + 8)
+    if vol_sig == 'high' and chg_pct > 0: conf_score = min(95, conf_score + 5)
+
+    # Trade levels
+    sl_pct = 0.020 if signal == 'STRONG BUY' else 0.025 if signal == 'BUY' else 0.030
+    sl = round(price * (1 - sl_pct), 0)
+    if support and support > sl and support < price * 0.99:
+        sl = round(support * 0.995, 0)
+    t1 = round(price * 1.015, 0)
+    t2 = round(price * 1.025, 0)
+    t3 = round(price * 1.040, 0)
+    risk   = round(((price - sl) / price) * 100, 1)
+    reward = round(((t2 - price) / price) * 100, 1)
+    rr     = round(reward / risk, 1) if risk > 0 else 0
+
+    return {
+        "symbol":     d.get('symbol'),
+        "name":       d.get('name'),
+        "price":      round(price, 2),
+        "changePct":  chg_pct,
+        "signal":     signal,
+        "setup":      setup,
+        "total":      round(total, 1),
+        "l1": l1, "l2": l2, "l3": l3, "l4": l4,
+        "confidence": conf_score,
+        "rsi":        round(rsi, 1),
+        "volumeSignal": vol_sig,
+        "sentiment":  sent,
+        "entry":      price,
+        "sl":         sl,
+        "t1":         t1,
+        "t2":         t2,
+        "t3":         t3,
+        "rr":         rr,
+        "risk_pct":   risk,
+        "reward_pct": reward,
+    }
+
+
+# ── END-OF-DAY BATCH SCAN ─────────────────────────────────────────────────────
+def run_batch_scan():
+    """
+    Scans all 150+ NSE stocks using 5-layer logic.
+    Runs at 3:30 PM IST (15:30) and saves top picks to disk.
+    Also runs on server startup for immediate results.
+    """
+    print("\n  [BATCH SCAN] Starting end-of-day scan…")
+    # Use all liquid stocks from NSE_STOCKS (skip ETFs for main scan)
+    candidates = [s["symbol"] for s in NSE_STOCKS if s.get("sector") != "ETF"]
+    print(f"  [BATCH SCAN] Universe: {len(candidates)} stocks")
+
+    # Fetch in batches of 5 (slightly larger batch for batch scan)
+    all_data = {}
+    BATCH = 5
+    for i in range(0, len(candidates), BATCH):
+        batch = candidates[i:i+BATCH]
+        results = fetch_yahoo_multi(batch, "30d")
+        all_data.update(results)
+        time.sleep(0.3)  # gentle rate limiting
+
+    print(f"  [BATCH SCAN] Fetched {len(all_data)} stocks, scoring…")
+
+    scored = []
+    for sym, d in all_data.items():
+        result = score_stock_python(d)
+        if result and result['signal'] in ('STRONG BUY', 'BUY', 'WEAK BUY'):
+            scored.append(result)
+
+    # Sort by confidence desc, then total score
+    scored.sort(key=lambda x: (-x['confidence'], -x['total']))
+    top_picks = scored[:10]
+
+    # Add ETF scan
+    etf_syms = [s["symbol"] for s in NSE_STOCKS if s.get("sector") == "ETF"]
+    etf_data = fetch_yahoo_multi(etf_syms, "30d")
+    etf_scored = []
+    for sym, d in etf_data.items():
+        result = score_stock_python(d)
+        if result and result['signal'] in ('STRONG BUY', 'BUY', 'WEAK BUY'):
+            etf_scored.append(result)
+    etf_scored.sort(key=lambda x: (-x['confidence'], -x['total']))
+
+    final = {
+        "stocks":    top_picks,
+        "etfs":      etf_scored[:3],
+        "total_scanned": len(all_data),
+        "total_qualified": len(scored),
+        "scan_time": time.strftime("%Y-%m-%d %H:%M IST"),
+        "scan_date": time.strftime("%Y-%m-%d"),
+    }
+    save_scan_results(final)
+    print(f"  [BATCH SCAN] Done. {len(scored)} qualified, top {len(top_picks)} saved.")
+    return final
+
+
+def batch_scan_scheduler():
+    """Background thread — runs batch scan at 3:30 PM IST every day."""
+    print("  [SCHEDULER] Batch scan scheduler started.")
+    while True:
+        try:
+            now = datetime.datetime.now()
+            # IST = UTC+5:30. We check local time assuming server runs in IST
+            # (Render servers run UTC — adjust: 15:30 IST = 10:00 UTC)
+            target_hour, target_min = 15, 30
+            # Try to detect timezone — if UTC offset is 0, use UTC equivalent
+            import time as _t
+            utc_offset = -(_t.timezone if not _t.daylight else _t.altzone) // 3600
+            if utc_offset == 0:  # UTC server (Render)
+                target_hour, target_min = 10, 0  # 3:30 PM IST = 10:00 AM UTC
+
+            if now.hour == target_hour and now.minute == target_min:
+                print(f"  [SCHEDULER] 3:30 PM IST trigger — running batch scan…")
+                run_batch_scan()
+                time.sleep(90)  # avoid double-trigger within same minute
+            else:
+                time.sleep(30)  # check every 30 seconds
+        except Exception as e:
+            print(f"  [SCHEDULER] Error: {e}")
+            time.sleep(60)
+
+
+# ── PRICE ALERT MONITOR ────────────────────────────────────────────────────────
+def check_alerts():
+    """
+    Background thread — checks price alerts every 5 minutes.
+    Fetches current price for each alerted symbol and fires if condition met.
+    """
+    print("  [ALERTS] Price alert monitor started.")
+    while True:
+        try:
+            alerts = load_alerts()
+            if not alerts:
+                time.sleep(300); continue
+
+            # Get unique symbols
+            syms = list(set(a['symbol'] for a in alerts if not a.get('triggered')))
+            if not syms:
+                time.sleep(300); continue
+
+            # Fetch current prices (use cache — 5-min TTL fits perfectly)
+            prices = {}
+            for sym in syms:
+                d = cache_get(f"{sym}:5d") or cache_get(f"{sym}:30d")
+                if d and d.get('status') == 'ok':
+                    prices[sym] = d.get('price', 0)
+                else:
+                    try:
+                        d = fetch_yahoo(sym, "5d")
+                        if d.get('status') == 'ok':
+                            prices[sym] = d.get('price', 0)
+                    except:
+                        pass
+
+            # Check each alert
+            updated = False
+            for alert in alerts:
+                if alert.get('triggered'): continue
+                sym   = alert.get('symbol')
+                price = prices.get(sym, 0)
+                if not price: continue
+
+                cond  = alert.get('condition')  # 'above' or 'below'
+                target = float(alert.get('target', 0))
+                fired  = (cond == 'above' and price >= target) or                          (cond == 'below' and price <= target)
+
+                if fired:
+                    alert['triggered']     = True
+                    alert['triggered_at']  = time.strftime("%Y-%m-%d %H:%M IST")
+                    alert['triggered_price'] = price
+                    add_triggered({
+                        "symbol":  sym,
+                        "name":    alert.get('name', sym),
+                        "condition": cond,
+                        "target":  target,
+                        "price":   price,
+                        "message": f"{sym} hit ₹{price:.2f} ({'above' if cond=='above' else 'below'} your alert of ₹{target})",
+                        "time":    time.strftime("%H:%M IST"),
+                    })
+                    print(f"  [ALERTS] 🔔 {sym} triggered! Price ₹{price} {cond} ₹{target}")
+                    updated = True
+
+            if updated:
+                save_alerts(alerts)
+
+            time.sleep(300)  # check every 5 minutes
+        except Exception as e:
+            print(f"  [ALERTS] Error: {e}")
+            time.sleep(60)
+
+
 # ── HTTP HANDLER ─────────────────────────────────────────────────────────────
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a): print(f"  -> \"{fmt%a}\"")
@@ -1037,6 +1429,81 @@ class Handler(BaseHTTPRequestHandler):
             results = fetch_yahoo_multi(etf_syms, "10d")
             self.send_json(results); return
 
+        # ── BATCH SCAN RESULTS ───────────────────────────────────────
+        if path == "/batch-scan":
+            force = flat.get("force","").lower() == "true"
+            if force:
+                # Run scan in background thread, return immediately
+                t = threading.Thread(target=run_batch_scan, daemon=True)
+                t.start()
+                self.send_json({"status":"scanning","message":"Batch scan started. Check /batch-scan in ~3 minutes."}); return
+            results = load_scan_results()
+            self.send_json(results); return
+
+        # ── PRICE ALERTS CRUD ────────────────────────────────────────
+        if path == "/alerts":
+            action = flat.get("action","list")
+
+            if action == "list":
+                alerts = load_alerts()
+                triggered = get_triggered()
+                self.send_json({"alerts": alerts, "triggered": triggered}); return
+
+            if action == "add":
+                sym    = flat.get("symbol","").strip().upper().replace(".NS","").replace(".BO","")
+                target = float(flat.get("target","0") or 0)
+                cond   = flat.get("condition","above")  # 'above' or 'below'
+                name   = flat.get("name", sym)
+                if not sym or not target:
+                    self.send_json({"error":"Missing symbol or target"},400); return
+                alerts = load_alerts()
+                # Check duplicate
+                existing = [a for a in alerts if a['symbol']==sym and a['condition']==cond and float(a['target'])==target]
+                if existing:
+                    self.send_json({"error":"Alert already exists"}); return
+                new_alert = {
+                    "id":        f"{sym}_{cond}_{target}_{int(time.time())}",
+                    "symbol":    sym,
+                    "name":      name,
+                    "condition": cond,
+                    "target":    target,
+                    "created":   time.strftime("%Y-%m-%d %H:%M IST"),
+                    "triggered": False,
+                }
+                alerts.append(new_alert)
+                save_alerts(alerts)
+                print(f"  [ALERTS] Added: {sym} {cond} ₹{target}")
+                self.send_json({"status":"ok","alert":new_alert}); return
+
+            if action == "delete":
+                alert_id = flat.get("id","")
+                alerts = load_alerts()
+                alerts = [a for a in alerts if a.get('id') != alert_id]
+                save_alerts(alerts)
+                self.send_json({"status":"ok"}); return
+
+            if action == "clear_triggered":
+                clear_triggered()
+                alerts = load_alerts()
+                for a in alerts:
+                    if a.get('triggered'): a['triggered'] = False
+                save_alerts(alerts)
+                self.send_json({"status":"ok"}); return
+
+            self.send_json({"error":"Unknown action"}); return
+
+        # ── SCAN UNIVERSE INFO ────────────────────────────────────────
+        if path == "/universe":
+            sectors = {}
+            for s in NSE_STOCKS:
+                sec = s.get('sector','Other')
+                sectors.setdefault(sec, []).append(s['symbol'])
+            self.send_json({
+                "total": len(NSE_STOCKS),
+                "sectors": sectors,
+                "symbols": [s['symbol'] for s in NSE_STOCKS]
+            }); return
+
         self.send_json({"error":f"Unknown: {path}"},404)
 
 # ── FULL NSE STOCK LIST FOR AUTOCOMPLETE ─────────────────────────────────────
@@ -1137,13 +1604,156 @@ NSE_STOCKS = [
     {"symbol":"NIFTYBEES",   "name":"Nippon Nifty ETF (NiftyBees)","sector":"ETF"},
     {"symbol":"JUNIORBEES",  "name":"Nippon Junior ETF",          "sector":"ETF"},
     {"symbol":"LIQUIDBEES",  "name":"Nippon Liquid ETF",          "sector":"ETF"},
+
+    # ── NIFTY NEXT 50 ──
+    {"symbol":"ABB",         "name":"ABB India",                  "sector":"Electricals"},
+    {"symbol":"ADANIGREEN",  "name":"Adani Green Energy",         "sector":"Renewable Energy"},
+    {"symbol":"ADANITRANS",  "name":"Adani Transmission",         "sector":"Utilities"},
+    {"symbol":"ATGL",        "name":"Adani Total Gas",            "sector":"Energy"},
+    {"symbol":"AWL",         "name":"Adani Wilmar",               "sector":"FMCG"},
+    {"symbol":"ALKEM",       "name":"Alkem Laboratories",         "sector":"Pharma"},
+    {"symbol":"AMBUJACEM",   "name":"Ambuja Cements",             "sector":"Cement"},
+    {"symbol":"AUROPHARMA",  "name":"Aurobindo Pharma",           "sector":"Pharma"},
+    {"symbol":"BAJAJ-AUTO",  "name":"Bajaj Auto",                 "sector":"Auto"},
+    {"symbol":"BALKRISIND",  "name":"Balkrishna Industries",      "sector":"Tyres"},
+    {"symbol":"BEL",         "name":"Bharat Electronics",         "sector":"Defence"},
+    {"symbol":"BHEL",        "name":"Bharat Heavy Electricals",   "sector":"Capital Goods"},
+    {"symbol":"BIOCON",      "name":"Biocon",                     "sector":"Pharma"},
+    {"symbol":"BPCL",        "name":"BPCL",                       "sector":"Energy"},
+    {"symbol":"BSE",         "name":"BSE Limited",                "sector":"Finance"},
+    {"symbol":"COLPAL",      "name":"Colgate-Palmolive India",    "sector":"FMCG"},
+    {"symbol":"CONCOR",      "name":"Container Corporation",      "sector":"Logistics"},
+    {"symbol":"CROMPTON",    "name":"Crompton Greaves Consumer",  "sector":"Electricals"},
+    {"symbol":"CUMMINSIND",  "name":"Cummins India",              "sector":"Capital Goods"},
+    {"symbol":"DEEPAKNTR",   "name":"Deepak Nitrite",             "sector":"Chemical"},
+    {"symbol":"DIXON",       "name":"Dixon Technologies",         "sector":"Electronics"},
+    {"symbol":"DLF",         "name":"DLF Limited",                "sector":"Real Estate"},
+    {"symbol":"EICHERMOT",   "name":"Eicher Motors",              "sector":"Auto"},
+    {"symbol":"GAIL",        "name":"GAIL India",                 "sector":"Energy"},
+    {"symbol":"GODREJPROP",  "name":"Godrej Properties",          "sector":"Real Estate"},
+    {"symbol":"HDFCAMC",     "name":"HDFC AMC",                   "sector":"Finance"},
+    {"symbol":"HEROMOTOCO",  "name":"Hero MotoCorp",              "sector":"Auto"},
+    {"symbol":"HINDZINC",    "name":"Hindustan Zinc",             "sector":"Metals"},
+    {"symbol":"ICICIGI",     "name":"ICICI Lombard Insurance",    "sector":"Insurance"},
+    {"symbol":"ICICIPRULI",  "name":"ICICI Prudential Life",      "sector":"Insurance"},
+    {"symbol":"INDUSTOWER",  "name":"Indus Towers",               "sector":"Telecom"},
+    {"symbol":"IOC",         "name":"Indian Oil Corporation",     "sector":"Energy"},
+    {"symbol":"IRFC",        "name":"Indian Railway Finance Corp","sector":"Finance"},
+    {"symbol":"LUPIN",       "name":"Lupin",                      "sector":"Pharma"},
+    {"symbol":"MANKIND",     "name":"Mankind Pharma",             "sector":"Pharma"},
+    {"symbol":"MAXHEALTH",   "name":"Max Healthcare",             "sector":"Healthcare"},
+    {"symbol":"MCX",         "name":"MCX India",                  "sector":"Finance"},
+    {"symbol":"MFSL",        "name":"Max Financial Services",     "sector":"Insurance"},
+    {"symbol":"NHPC",        "name":"NHPC Limited",               "sector":"Utilities"},
+    {"symbol":"NYKAA",       "name":"FSN E-Commerce (Nykaa)",     "sector":"Consumer Tech"},
+    {"symbol":"OBEROIRLTY",  "name":"Oberoi Realty",              "sector":"Real Estate"},
+    {"symbol":"OFSS",        "name":"Oracle Financial Services",  "sector":"IT"},
+    {"symbol":"OIL",         "name":"Oil India",                  "sector":"Energy"},
+    {"symbol":"PAGEIND",     "name":"Page Industries",            "sector":"Consumer"},
+    {"symbol":"PAYTM",       "name":"One97 Communications (Paytm)","sector":"Fintech"},
+    {"symbol":"PIIND",       "name":"PI Industries",              "sector":"Chemical"},
+    {"symbol":"POLYCAB",     "name":"Polycab India",              "sector":"Electricals"},
+    {"symbol":"PRESTIGE",    "name":"Prestige Estates",           "sector":"Real Estate"},
+    {"symbol":"RECLTD",      "name":"REC Limited",                "sector":"Finance"},
+    {"symbol":"SAIL",        "name":"Steel Authority of India",   "sector":"Metals"},
+    {"symbol":"SBICARD",     "name":"SBI Cards",                  "sector":"Finance"},
+    {"symbol":"SHREECEM",    "name":"Shree Cement",               "sector":"Cement"},
+    {"symbol":"SIEMENS",     "name":"Siemens India",              "sector":"Capital Goods"},
+    {"symbol":"SOLARINDS",   "name":"Solar Industries",           "sector":"Defence"},
+    {"symbol":"SRF",         "name":"SRF Limited",                "sector":"Chemical"},
+    {"symbol":"STARHEALTH",  "name":"Star Health Insurance",      "sector":"Insurance"},
+    {"symbol":"SUPREMEIND",  "name":"Supreme Industries",         "sector":"Plastics"},
+    {"symbol":"TATACOMM",    "name":"Tata Communications",        "sector":"Telecom"},
+    {"symbol":"TATACONSUM",  "name":"Tata Consumer Products",     "sector":"FMCG"},
+    {"symbol":"TRENT",       "name":"Trent (Tata Retail)",        "sector":"Retail"},
+    {"symbol":"TRIDENT",     "name":"Trident Limited",            "sector":"Textile"},
+    {"symbol":"UNITDSPR",    "name":"United Spirits",             "sector":"Beverages"},
+    {"symbol":"VEDL",        "name":"Vedanta",                    "sector":"Metals"},
+    {"symbol":"VOLTAS",      "name":"Voltas",                     "sector":"Consumer"},
+    {"symbol":"ZYDUSLIFE",   "name":"Zydus Lifesciences",         "sector":"Pharma"},
+
+    # ── HIGH-LIQUIDITY MIDCAP F&O STOCKS ──
+    {"symbol":"ABCAPITAL",   "name":"Aditya Birla Capital",       "sector":"Finance"},
+    {"symbol":"ABFRL",       "name":"Aditya Birla Fashion",       "sector":"Retail"},
+    {"symbol":"ASTRAL",      "name":"Astral Limited",             "sector":"Plastics"},
+    {"symbol":"AUROPHARMA",  "name":"Aurobindo Pharma",           "sector":"Pharma"},
+    {"symbol":"BALRAMCHIN",  "name":"Balrampur Chini",            "sector":"Sugar"},
+    {"symbol":"BATAINDIA",   "name":"Bata India",                 "sector":"Consumer"},
+    {"symbol":"BHARATFORG",  "name":"Bharat Forge",               "sector":"Auto Ancillary"},
+    {"symbol":"CANFINHOME",  "name":"Can Fin Homes",              "sector":"Finance"},
+    {"symbol":"CDSL",        "name":"CDSL",                       "sector":"Finance"},
+    {"symbol":"CHAMBLFERT",  "name":"Chambal Fertilizers",        "sector":"Chemicals"},
+    {"symbol":"COROMANDEL",  "name":"Coromandel International",   "sector":"Chemicals"},
+    {"symbol":"DABUR",       "name":"Dabur India",                "sector":"FMCG"},
+    {"symbol":"DELTACORP",   "name":"Delta Corp",                 "sector":"Hospitality"},
+    {"symbol":"ESCORTS",     "name":"Escorts Kubota",             "sector":"Auto"},
+    {"symbol":"FACT",        "name":"FACT",                       "sector":"Chemicals"},
+    {"symbol":"FEDERALBNK",  "name":"Federal Bank",               "sector":"Banking"},
+    {"symbol":"GMRINFRA",    "name":"GMR Airports Infrastructure","sector":"Infrastructure"},
+    {"symbol":"GNFC",        "name":"Gujarat Narmada Valley",     "sector":"Chemicals"},
+    {"symbol":"GRANULES",    "name":"Granules India",             "sector":"Pharma"},
+    {"symbol":"GUJGASLTD",   "name":"Gujarat Gas",                "sector":"Energy"},
+    {"symbol":"HAL",         "name":"Hindustan Aeronautics",      "sector":"Defence"},
+    {"symbol":"HUDCO",       "name":"HUDCO",                      "sector":"Finance"},
+    {"symbol":"IDFC",        "name":"IDFC Limited",               "sector":"Finance"},
+    {"symbol":"IDFCFIRSTB",  "name":"IDFC First Bank",            "sector":"Banking"},
+    {"symbol":"IGL",         "name":"Indraprastha Gas",           "sector":"Energy"},
+    {"symbol":"INDIACEM",    "name":"India Cements",              "sector":"Cement"},
+    {"symbol":"INDIAMART",   "name":"IndiaMART InterMESH",        "sector":"Consumer Tech"},
+    {"symbol":"INDIANB",     "name":"Indian Bank",                "sector":"Banking"},
+    {"symbol":"INDUSINDBK",  "name":"IndusInd Bank",              "sector":"Banking"},
+    {"symbol":"INOXGREEN",   "name":"INOX Green Energy",          "sector":"Renewable Energy"},
+    {"symbol":"IRCTC",       "name":"IRCTC",                      "sector":"Travel"},
+    {"symbol":"ITC",         "name":"ITC Limited",                "sector":"FMCG"},
+    {"symbol":"JSWENERGY",   "name":"JSW Energy",                 "sector":"Energy"},
+    {"symbol":"JUBLFOOD",    "name":"Jubilant Foodworks",         "sector":"Food"},
+    {"symbol":"KAJARIACER",  "name":"Kajaria Ceramics",           "sector":"Consumer"},
+    {"symbol":"LALPATHLAB",  "name":"Dr Lal PathLabs",            "sector":"Healthcare"},
+    {"symbol":"LAURUSLABS",  "name":"Laurus Labs",                "sector":"Pharma"},
+    {"symbol":"LICHSGFIN",   "name":"LIC Housing Finance",        "sector":"Finance"},
+    {"symbol":"LTTS",        "name":"L&T Technology Services",    "sector":"IT"},
+    {"symbol":"M&M",         "name":"Mahindra & Mahindra",        "sector":"Auto"},
+    {"symbol":"M&MFIN",      "name":"M&M Financial Services",     "sector":"Finance"},
+    {"symbol":"MANAPPURAM",  "name":"Manappuram Finance",         "sector":"Finance"},
+    {"symbol":"MARICO",      "name":"Marico",                     "sector":"FMCG"},
+    {"symbol":"MCDOWELL-N",  "name":"United Spirits",             "sector":"Beverages"},
+    {"symbol":"METROPOLIS",  "name":"Metropolis Healthcare",      "sector":"Healthcare"},
+    {"symbol":"MFSL",        "name":"Max Financial Services",     "sector":"Insurance"},
+    {"symbol":"MGL",         "name":"Mahanagar Gas",              "sector":"Energy"},
+    {"symbol":"MMTC",        "name":"MMTC Limited",               "sector":"Metals"},
+    {"symbol":"MOTHERSON",   "name":"Samvardhana Motherson",      "sector":"Auto Ancillary"},
+    {"symbol":"MPHASIS",     "name":"Mphasis",                    "sector":"IT"},
+    {"symbol":"NAVINFLUOR",  "name":"Navin Fluorine",             "sector":"Chemical"},
+    {"symbol":"NIACL",       "name":"New India Assurance",        "sector":"Insurance"},
+    {"symbol":"NMDC",        "name":"NMDC Limited",               "sector":"Metals"},
+    {"symbol":"PERSISTENT",  "name":"Persistent Systems",         "sector":"IT"},
+    {"symbol":"PETRONET",    "name":"Petronet LNG",               "sector":"Energy"},
+    {"symbol":"PFC",         "name":"Power Finance Corporation",  "sector":"Finance"},
+    {"symbol":"PHOENIXLTD",  "name":"Phoenix Mills",              "sector":"Real Estate"},
+    {"symbol":"POLICYBZR",   "name":"PB Fintech (PolicyBazaar)",  "sector":"Fintech"},
+    {"symbol":"RAYMOND",     "name":"Raymond Limited",            "sector":"Textile"},
+    {"symbol":"RVNL",        "name":"Rail Vikas Nigam",           "sector":"Infrastructure"},
+    {"symbol":"SONACOMS",    "name":"Sona BLW Precision",         "sector":"Auto Ancillary"},
+    {"symbol":"SUNTV",       "name":"Sun TV Network",             "sector":"Media"},
+    {"symbol":"SUZLON",      "name":"Suzlon Energy",              "sector":"Renewable Energy"},
+    {"symbol":"TIINDIA",     "name":"Tube Investments",           "sector":"Auto Ancillary"},
+    {"symbol":"TORNTPHARM",  "name":"Torrent Pharmaceuticals",    "sector":"Pharma"},
+    {"symbol":"TORNTPOWER",  "name":"Torrent Power",              "sector":"Utilities"},
+    {"symbol":"TVSMOTOR",    "name":"TVS Motor Company",          "sector":"Auto"},
+    {"symbol":"UBL",         "name":"United Breweries",           "sector":"Beverages"},
+    {"symbol":"ULTRACEMCO",  "name":"UltraTech Cement",           "sector":"Cement"},
+    {"symbol":"UPL",         "name":"UPL Limited",                "sector":"Chemicals"},
+    {"symbol":"VBL",         "name":"Varun Beverages",            "sector":"Beverages"},
+    {"symbol":"WHIRLPOOL",   "name":"Whirlpool of India",         "sector":"Consumer"},
+    {"symbol":"WIPRO",       "name":"Wipro",                      "sector":"IT"},
+    {"symbol":"ZOMATO",      "name":"Zomato",                     "sector":"Consumer Tech"},
 ]
 
 def run():
     port = int(os.environ.get("PORT") or 10000)
     srv  = HTTPServer(("0.0.0.0",port), Handler)
     print("="*60)
-    print("  India Market Dashboard - Backend v3")
+    print("  India Market Dashboard - Backend v5")
     print("="*60)
     print(f"  URL      : http://localhost:{port}")
     print(f"  Stocks   : Yahoo Finance + Technical Analysis (free)")
@@ -1151,6 +1761,18 @@ def run():
     print(f"  News     : Yahoo Finance RSS (free)")
     print("="*60)
     print("  Press Ctrl+C to stop\n")
+    # Start background services
+    threading.Thread(target=batch_scan_scheduler, daemon=True).start()
+    threading.Thread(target=check_alerts, daemon=True).start()
+
+    # Run initial batch scan on startup (in background, non-blocking)
+    saved = load_scan_results()
+    if not saved.get('results'):
+        print("  [STARTUP] No saved scan results — running initial scan in background…")
+        threading.Thread(target=run_batch_scan, daemon=True).start()
+    else:
+        print(f"  [STARTUP] Loaded saved scan from {saved.get('timestamp','unknown')}")
+
     try: srv.serve_forever()
     except KeyboardInterrupt: print("\n  Stopped.")
 
