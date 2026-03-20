@@ -1,5 +1,5 @@
 """
-India Market Dashboard - Backend v6
+India Market Dashboard - Backend v5
 Commodities  → Twelve Data + gold-api.com (free)
 NSE Stocks   → Yahoo Finance (parallel + 5-min cache)
 News         → Yahoo Finance RSS (free)
@@ -1939,6 +1939,28 @@ def run():
         threading.Thread(target=run_batch_scan, daemon=True).start()
     else:
         print(f"  [STARTUP] Loaded saved scan from {saved.get('timestamp','unknown')}")
+
+    # ── KEEP-ALIVE PINGER ────────────────────────────────────────
+    # Pings /health every 10 minutes so Render never puts server to sleep
+    # Free plan sleeps after 15 min inactivity — this prevents that
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
+
+    def keep_alive():
+        if not render_url:
+            print("  [KEEP-ALIVE] No RENDER_EXTERNAL_URL set — skipping pinger")
+            return
+        print(f"  [KEEP-ALIVE] Started — pinging {render_url}/health every 10 min")
+        while True:
+            time.sleep(600)  # 10 minutes
+            try:
+                req = Request(f"{render_url}/health",
+                              headers={"User-Agent": "KeepAlive/1.0"})
+                with urlopen(req, timeout=10) as r:
+                    print(f"  [KEEP-ALIVE] Ping OK — server awake")
+            except Exception as e:
+                print(f"  [KEEP-ALIVE] Ping failed: {e}")
+
+    threading.Thread(target=keep_alive, daemon=True).start()
 
     try: srv.serve_forever()
     except KeyboardInterrupt: print("\n  Stopped.")
