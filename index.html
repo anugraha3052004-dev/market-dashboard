@@ -2077,7 +2077,7 @@ async function checkMarketHealth() {
             ${isThursday ? ' &nbsp;|&nbsp; <span style="color:var(--sell);font-weight:700">⚠️ Thursday F&O Expiry</span>' : ''}
           </div>
         </div>
-        ${score < 4 ? `<div style="font-family:var(--fm);font-size:10px;padding:4px 10px;border-radius:6px;white-space:nowrap;background:${score >= 3 ? 'var(--hold-bg)' : 'var(--sell-bg)'};color:${score >= 3 ? 'var(--hold)' : 'var(--sell)'};border:1px solid ${score >= 3 ? 'var(--hold-bd)' : 'var(--sell-bd)'}">${score >= 3 ? 'Trade small' : 'NO TRADE'}</div>` : ''}
+        ${score < 4 ? `<div style="font-family:var(--fm);font-size:10px;padding:4px 10px;border-radius:6px;white-space:nowrap;background:${score >= 3 ? 'var(--hold-bg)' : 'var(--sell-bg)'};color:${score >= 3 ? 'var(--hold)' : 'var(--sell)'};border:1px solid ${score >= 3 ? 'var(--hold-bd)' : 'var(--sell-bd)'}">${score >= 3 ? '⚠️ Trade small (50% size)' : '⚠️ Very cautious (25% size)'}</div>` : ''}
       </div>`;
 
     // Store globally for layer 1 usage
@@ -2390,19 +2390,65 @@ function calcLayer4(s, news) {
 }
 
 // ── Layer 5: Risk Qualification blockers ─────────────────────────
+// HARD blocks = stock genuinely untradeable (circuit, weekend)
+// SOFT warns  = trade with caution, reduced position size
+// KEY CHANGE: VIX > 20 is a WARNING not a hard block
+// Scanner still shows picks — just flags the risk clearly
 function calcLayer5(s) {
-  const blockers   = [];
+  const hardBlocks = [];
   const softWarns  = [];
   const mh         = window.MH_DATA || {};
   const now        = new Date();
   const dow        = now.getDay();
   const timeIST    = now.getHours() * 60 + now.getMinutes();
   const ind        = s.indicators || {};
+  const vix        = mh.vix || 0;
 
-  // BLOCKER 1: VIX emergency — hard block
-  if ((mh.vix || 0) >= 20) {
-    blockers.push(`🔴 India VIX at ${mh.vix} — Emergency territory (>20). DO NOT trade any stock today.`);
-  }
+  // ── HARD BLOCKS (absolute no-trade situations) ──────────────
+  // 1. Weekend — market closed
+  if (dow === 0 || dow === 6)
+    hardBlocks.push('❌ Weekend — NSE market is closed today.');
+
+  // 2. Stock in freefall > 10% — circuit risk
+  if ((s.changePct || 0) < -10)
+    hardBlocks.push('❌ Down ' + Math.abs(s.changePct).toFixed(1) + '% — possible circuit. Wait next session.');
+
+  // 3. Crash + high volume = institutional exit, not bounce
+  if ((s.changePct || 0) < -6 && ind.volumeSignal === 'high')
+    hardBlocks.push('❌ Heavy crash + volume spike — institutional selling. Not a bounce yet.');
+
+  // ── SOFT WARNINGS (trade with care) ─────────────────────────
+  // VIX levels — graded warnings
+  if      (vix >= 25) softWarns.push('🔴 VIX ' + vix.toFixed(1) + ' — Very high fear. Use 25% position size only.');
+  else if (vix >= 20) softWarns.push('⚠️ VIX ' + vix.toFixed(1) + ' — Elevated fear. Use 50% position size. Tight stop.');
+  else if (vix >= 16) softWarns.push('⚠️ VIX ' + vix.toFixed(1) + ' — Slightly elevated. Trade carefully.');
+
+  // Thursday F&O expiry
+  if (dow === 4) softWarns.push('⚠️ Thursday F&O Expiry — high volatility. Use 50% reduced size.');
+
+  // Timing warnings
+  if (timeIST > 9*60+15 && timeIST < 10*60+30)
+    softWarns.push('⚠️ Before 10:30 AM IST — wait for opening volatility to settle.');
+  if (timeIST > 14*60+30 && timeIST < 15*60+30)
+    softWarns.push('⚠️ After 2:30 PM IST — avoid fresh entries near market close.');
+
+  // Overbought + chasing
+  if ((ind.rsi || 50) > 75 && (s.changePct || 0) > 3)
+    softWarns.push('⚠️ RSI ' + (ind.rsi||0) + ' overbought + up ' + (s.changePct||0) + '% — do NOT chase.');
+
+  // Already ran a lot today
+  if ((s.changePct || 0) >= 3)
+    softWarns.push('⚠️ Already up ' + (s.changePct||0) + '% today — wait for 0.5-1% dip.');
+
+  // Below both MAs + falling — soft warning only
+  if (ind.sma50 && ind.sma20 && s.price &&
+      s.price < ind.sma20 && s.price < ind.sma50 && (s.changePct || 0) < -2)
+    softWarns.push('⚠️ Below SMA20 + SMA50 while falling — weak setup, enter on reversal only.');
+
+  const clear = hardBlocks.length === 0;
+  return { clear, blockers: hardBlocks, softWarns, isThursday: dow === 4 };
+}
+
 
   // BLOCKER 2: Stock falling hard with high volume = distribution
   if ((s.changePct || 0) < -8) {
@@ -2587,18 +2633,15 @@ async function runStocksense() {
     const l1 = calcLayer1();
     setLP(1, 'done');
 
-    // Emergency stop if market totally unsafe
-    if (l1.score <= 1 && (window.MH_DATA?.vix || 0) >= 22) {
-      document.getElementById('ai-output').innerHTML = `
-        <div class="blocker-alert">
-          <div class="blocker-ico">🚨</div>
-          <div class="blocker-ttl">MARKET UNSAFE — Layer 1 Score: ${l1.score}/5</div>
-          <div class="blocker-msg">India VIX at ${window.MH_DATA.vix} — emergency territory (>20).<br><br>
-          Do NOT trade any stock today. Wait for VIX to fall below 20 before entering new positions.</div>
-        </div>`;
-      btn.disabled=false; document.getElementById('ai-btn-txt').textContent='🤖 Analyse Now';
-      if(prog) prog.style.display='none';
-      return;
+    // Show VIX warning but DON'T block analysis — user deserves to see the data
+    const currentVix = window.MH_DATA?.vix || 0;
+    if (currentVix >= 20) {
+      // Just show a warning banner, continue with analysis
+      const vixWarnDiv = document.createElement('div');
+      vixWarnDiv.style.cssText = 'margin-bottom:12px;padding:10px 14px;background:var(--hold-bg);border:1px solid var(--hold-bd);border-radius:var(--r8);font-size:11px;font-family:var(--fm);color:var(--hold)';
+      vixWarnDiv.innerHTML = '⚠️ VIX at ' + currentVix.toFixed(1) + ' — Market fear is high. Reduce position size by 50%. Trade only the highest confidence setups.';
+      document.getElementById('ai-output').innerHTML = '';
+      document.getElementById('ai-output').appendChild(vixWarnDiv);
     }
 
     // === Fetch stock data from /stock endpoint ===
@@ -2819,15 +2862,21 @@ async function scoreWatchlist() {
   const l1 = calcLayer1();
 
   const picks = stocks.map(sym => {
-    const s    = SD[sym];
-    const l2   = calcLayer2(s);
-    const l3   = calcLayer3(s);
-    const l4   = calcLayer4(s, []);   // no news for quick score
-    const l5   = calcLayer5(s);
+    const s     = SD[sym];
+    const l2    = calcLayer2(s);
+    const l3    = calcLayer3(s);
+    const l4    = calcLayer4(s, []);
+    const l5    = calcLayer5(s);
     const final = calcFinalSignal(l1, l2, l3, l4);
     const tp    = buildTradePlan(s, final, l5, 25000);
-    return { sym, s, final, tp, l5 };
-  }).sort((a,b) => b.final.total - a.final.total);
+    const conf  = calcConfidence(l1, l2, l3, l4, l5, final);
+    return { sym, s, final, tp, l5, conf };
+  }).sort((a,b) => {
+    // Unblocked first, then by confidence, then total
+    if (a.l5.clear && !b.l5.clear) return -1;
+    if (!a.l5.clear && b.l5.clear) return 1;
+    return b.conf - a.conf || b.final.total - a.final.total;
+  });
 
   const sigCol = sig => ['STRONG BUY','BUY'].includes(sig)?'var(--buy)':sig==='WEAK BUY'?'var(--hold)':['NO TRADE','DANGER'].includes(sig)?'var(--sell)':'var(--t2)';
   const sigBg  = sig => ['STRONG BUY','BUY'].includes(sig)?'var(--buy-bg)':sig==='WEAK BUY'?'var(--hold-bg)':['NO TRADE','DANGER'].includes(sig)?'var(--sell-bg)':'var(--bg3)';
@@ -2847,7 +2896,7 @@ async function scoreWatchlist() {
           </div>
           <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:3px">
             RSI:${ind(p.s).rsi||'?'} · Vol:${ind(p.s).volumeSignal||'?'} · ${p.s.sentiment||'Neutral'} · ${(p.s.changePct||0)>=0?'+':''}${p.s.changePct||0}% today
-            ${p.tp.show ? ` · <span style="color:var(--buy)">SL ₹${inr(p.tp.sl)} → T2 ₹${inr(p.tp.t2)}</span>` : ''}
+            ${p.tp.show ? ` · <span style="color:var(--buy)">SL ₹${inr(p.tp.sl)} → T2 ₹${inr(p.tp.t2)}</span>` : (p.l5.softWarns.length > 0 ? ` · <span style="color:var(--hold)">${p.l5.softWarns[0]}</span>` : '')}
           </div>
         </div>
         <div style="text-align:right;flex-shrink:0">
@@ -3147,8 +3196,10 @@ async function runSmartScan() {
       // Only include if meets min score
       if (final.total < minScore) continue;
 
-      // Only include BUY direction (not AVOID/DANGER)
-      if (['DANGER', 'NO TRADE', 'WATCH'].includes(final.signal) && minScore >= 11) continue;
+      // Only filter out true DANGER signals — keep WATCH for awareness
+      if (final.signal === 'DANGER') continue;
+      // For NO TRADE: only exclude if minScore is high (user wants only strong picks)
+      if (final.signal === 'NO TRADE' && minScore >= 15) continue;
 
       const conf    = calcConfidence(l1, l2, l3, l4, l5, final);
       const setup   = detectSetup(s);
@@ -3161,35 +3212,67 @@ async function runSmartScan() {
 
     ssStep(4, 'active');
 
-    // CONFLUENCE FILTER: must have at least 2 layers agreeing positively
+    // CONFLUENCE FILTER: at least 2 layers positive OR strong tech signal
     const filtered = scored.filter(p => {
       const posLayers = [
-        p.l1.score >= 3,
-        p.l2.score >= 4,
-        p.l3.score >= 3,
-        p.l4.score >= 0
+        p.l1.score >= 2,   // relaxed: 2 instead of 3
+        p.l2.score >= 3,   // relaxed: 3 instead of 4
+        p.l3.score >= 2,   // relaxed: 2 instead of 3
+        p.l4.score >= -1   // allow neutral news
       ].filter(Boolean).length;
-      return posLayers >= 2;
+      // Accept if 2+ layers agree OR if technical score alone is very strong
+      return posLayers >= 2 || p.l2.score >= 5;
     });
 
-    // Sort by: confidence desc, then total score desc
-    filtered.sort((a,b) => b.conf - a.conf || b.final.total - a.final.total);
+    // Sort: clear (unblocked) first, then by confidence, then total score
+    filtered.sort((a,b) => {
+      if (a.l5.clear && !b.l5.clear) return -1;
+      if (!a.l5.clear && b.l5.clear) return 1;
+      return b.conf - a.conf || b.final.total - a.final.total;
+    });
     ssStep(5, 'active');
 
     const top3 = filtered.slice(0, 3);
 
     if (top3.length === 0) {
-      out.innerHTML = `
-        <div class="no-picks">
-          <div style="font-size:28px;margin-bottom:8px">🔍</div>
-          <div style="font-weight:700;color:var(--t2);margin-bottom:6px">No strong picks today</div>
-          <div>Scanned ${syms.length} stocks — none met the minimum score of ${minScore}/23 with confluence.</div>
-          <div style="margin-top:8px">Try: lower min score, expand universe, or wait for better setups.</div>
-          <div style="margin-top:12px;font-size:10px;color:var(--t3)">
-            Layer 1 Market Score: ${l1.score}/5 — ${l1.status}
-            ${l1.score < 3 ? ' ⚠️ Weak market conditions reducing opportunities.' : ''}
-          </div>
-        </div>`;
+      // Show best available even below threshold, with clear warnings
+      const bestAvail = filtered.length > 0 ? filtered : scored.sort((a,b)=>b.final.total-a.final.total).slice(0,3);
+      const mhData = window.MH_DATA || {};
+      let html2 = `
+        <div style="padding:14px 18px">
+          <div style="background:var(--hold-bg);border:1px solid var(--hold-bd);border-radius:var(--r12);padding:12px 14px;margin-bottom:12px">
+            <div style="font-size:12px;font-weight:700;color:var(--hold);margin-bottom:4px">⚠️ No High-Confidence Picks Today</div>
+            <div style="font-size:11px;color:var(--t2);line-height:1.6">
+              Scanned ${syms.filter(s=>SD[s]?.status==='ok').length} stocks. Market score: ${l1.score}/5 (${l1.status}).
+              ${mhData.vix >= 20 ? ` India VIX at ${mhData.vix} — elevated fear.` : ''}
+              ${l1.score < 3 ? ' Global conditions weak today.' : ''}
+              <br>Try: lower the min score threshold, or wait for better market conditions.
+            </div>
+          </div>`;
+      if (bestAvail.length > 0) {
+        html2 += `<div style="font-size:10px;font-family:var(--fm);color:var(--t3);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Best Available (Below Threshold)</div>`;
+        html2 += bestAvail.slice(0,5).map((p,i) => {
+          const sigCol2 = ['STRONG BUY','BUY'].includes(p.final.signal)?'var(--buy)':p.final.signal==='WEAK BUY'?'var(--hold)':'var(--sell)';
+          return `<div class="batch-pick" onclick="aiPickSym('${p.sym}');document.getElementById('ai-sym-inp').value='${p.sym}'">
+            <div class="batch-rank" style="font-size:12px">${i+1}</div>
+            <div class="batch-info">
+              <div class="batch-name">${p.s.name||p.sym}</div>
+              <div class="batch-meta">${p.sym} · ${p.setup} · RSI:${p.s.indicators?.rsi||'?'}</div>
+              <div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap">
+                <span style="font-size:9px;padding:2px 7px;border-radius:4px;font-family:var(--fm);color:${sigCol2};background:${sigCol2}22;border:1px solid ${sigCol2}44">${p.final.signal}</span>
+                <span style="font-size:9px;font-family:var(--fm);color:var(--t3)">${p.final.total}/23</span>
+                ${!p.l5.clear?'<span style="font-size:9px;color:var(--sell);font-family:var(--fm)">⚠️ Risky</span>':''}
+              </div>
+            </div>
+            <div class="batch-right">
+              <div class="batch-price">₹${(p.s.price||0).toFixed(0)}</div>
+              <div style="font-size:10px;font-family:var(--fm);color:${p.conf>=60?'var(--hold)':'var(--sell)'}">⭐${p.conf}%</div>
+            </div>
+          </div>`;
+        }).join('');
+      }
+      html2 += `</div>`;
+      out.innerHTML = html2;
       btn.disabled=false; document.getElementById('scan-run-txt').textContent='🔍 Find Top Picks';
       return;
     }
@@ -3204,6 +3287,17 @@ async function runSmartScan() {
     const bestExpMove = best.tp.show
       ? `+${(((best.tp.t2 - best.tp.entry) / best.tp.entry)*100).toFixed(1)}% in 2–3 days`
       : '+1–2% in 2–3 days';
+
+    // Market context banner
+    const mhD = window.MH_DATA || {};
+    const mktBannerCol = l1.score >= 4 ? 'var(--buy-bg)' : l1.score >= 3 ? 'var(--hold-bg)' : 'var(--sell-bg)';
+    const mktBannerBd  = l1.score >= 4 ? 'var(--buy-bd)' : l1.score >= 3 ? 'var(--hold-bd)' : 'var(--sell-bd)';
+    const mktBannerCol2= l1.score >= 4 ? 'var(--buy)' : l1.score >= 3 ? 'var(--hold)' : 'var(--sell)';
+    html += `<div style="margin:12px 18px 4px;padding:10px 14px;background:${mktBannerCol};border:1px solid ${mktBannerBd};border-radius:var(--r8);font-size:11px;font-family:var(--fm)">
+      <span style="color:${mktBannerCol2};font-weight:700">Market: ${l1.score}/5 — ${l1.status}</span>
+      <span style="color:var(--t3)"> &nbsp;|&nbsp; VIX: ${(mhD.vix||0).toFixed(1)} &nbsp;|&nbsp; Scanned: ${syms.filter(s=>SD[s]?.status==='ok').length} stocks &nbsp;|&nbsp; Qualified: ${filtered.length}</span>
+      ${mhD.vix >= 20 ? '<span style="color:var(--sell)"> &nbsp;|&nbsp; ⚠️ High VIX — use reduced position size</span>' : ''}
+    </div>`;
 
     html += `
     <div class="sotd-banner" onclick="aiPickSym('${best.sym}');document.getElementById('ai-sym-inp').value='${best.sym}'">
@@ -3287,7 +3381,7 @@ async function runSmartScan() {
             <div class="pick-factor"><span class="pf-ico">📊</span><span>Technical: ${p.l2.score}/7</span></div>
             <div class="pick-factor"><span class="pf-ico">💰</span><span>Fundamental: ${p.l3.score}/6</span></div>
             <div class="pick-factor"><span class="pf-ico">📰</span><span>News: ${p.l4.score>=0?'+':''}${p.l4.score}/5</span></div>
-            <div class="pick-factor"><span class="pf-ico">🚦</span><span>Risk: ${p.l5.clear?'✅ Clear':'🚨 Blocked'}</span></div>
+            <div class="pick-factor"><span class="pf-ico">🚦</span><span>Risk: ${p.l5.clear && p.l5.softWarns.length===0 ? '✅ Clear' : p.l5.clear ? '⚠️ ' + (p.l5.softWarns[0]||'Trade with care').slice(0,50) : '🚨 ' + (p.l5.blockers[0]||'Hard block').slice(0,50)}</span></div>
           </div>
         </div>
 
