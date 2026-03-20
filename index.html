@@ -1015,7 +1015,7 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
         <div class="ss-scan-ico">🎯</div>
         <div style="flex:1">
           <div class="ss-scan-ttl">Smart Scanner — Top Picks Today</div>
-          <div class="ss-scan-sub">5-layer scoring · Confluence filter · Ranked opportunities · Stock of the Day</div>
+          <div class="ss-scan-sub">5-layer scoring · Confluence filter · Stock of the Day · <span style="color:var(--buy)">Results cached 30 min — first run 15-30s, then instant</span></div>
         </div>
         <button class="btn btn-pri" id="scan-run-btn" onclick="runSmartScan()" style="flex-shrink:0">
           <span id="scan-run-txt">🔍 Find Top Picks</span>
@@ -1110,7 +1110,7 @@ tr[data-s]:hover td{background:rgba(59,130,246,.04);cursor:pointer}
     <div id="det"></div>
   </div>
 
-  <div class="footer">Stocks: Yahoo Finance · Commodities: gold-api.com + Twelve Data · Not SEBI-registered advice &nbsp;|&nbsp; <span style="color:var(--acc);font-family:var(--fm)">v5.0 — Smart Scanner · Batch Scan · Price Alerts</span></div>
+  <div class="footer">Stocks: Yahoo Finance · Commodities: gold-api.com + Twelve Data · Not SEBI-registered advice &nbsp;|&nbsp; <span style="color:var(--acc);font-family:var(--fm)">v5.1 — Smart Scanner · Load Balanced · Disk Cache · Price Alerts</span></div>
 </div>
 
 <script>
@@ -3159,13 +3159,28 @@ async function runSmartScan() {
     if (!window.MH_DATA) await checkMarketHealth();
     const l1 = calcLayer1();
 
-    // Step 2: Call /scan-fast — server fetches + scores all stocks
-    ssStep(2, 'Server fetching & scoring 40+ stocks in parallel…');
-    const watchlistStr = SL.join(',');
-    const scanData = await api(
-      `/scan-fast?mode=${SCAN_MODE}&watchlist=${watchlistStr}`,
-      45000  // 45s timeout
-    );
+    // Step 2: Call /scan-fast — server does all the heavy lifting
+    const modeLabel = {watchlist:'watchlist',nse:'NSE Top 30',etf:'ETFs',all:'All stocks'}[SCAN_MODE]||SCAN_MODE;
+    ssStep(2, `Server scoring ${modeLabel} (may take 15–30 sec first time, instant after)…`);
+
+    // Show live timer so user knows it's working
+    let elapsed = 0;
+    const timer = setInterval(() => {
+      elapsed++;
+      const el = document.getElementById('ss2');
+      if(el) el.lastChild.textContent = `Server scoring ${modeLabel}… ${elapsed}s (cached after first run)`;
+    }, 1000);
+
+    let scanData;
+    try {
+      const watchlistStr = SL.join(',');
+      scanData = await api(
+        `/scan-fast?mode=${SCAN_MODE}&watchlist=${watchlistStr}`,
+        90000  // 90s timeout — generous for first run
+      );
+    } finally {
+      clearInterval(timer);
+    }
 
     ssStep(3, `Scored ${scanData.scanned||0} stocks, ${scanData.qualified||0} qualified…`);
 
