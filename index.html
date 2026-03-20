@@ -3123,184 +3123,161 @@ function buildWhyBest(s, l1, l2, l3, l4, final, rank, allPicks) {
 
 // ── MAIN SCAN FUNCTION ────────────────────────────────────────────
 async function runSmartScan() {
-  const minScore = parseInt(document.getElementById('min-score-sel').value) || 15;
-  const syms = SCAN_UNIVERSE[SCAN_MODE]();
-  const btn  = document.getElementById('scan-run-btn');
-  const out  = document.getElementById('smart-scan-out');
+  const minScore = parseInt(document.getElementById('min-score-sel').value) || 11;
+  const btn      = document.getElementById('scan-run-btn');
+  const out      = document.getElementById('smart-scan-out');
 
   btn.disabled = true;
   document.getElementById('scan-run-txt').textContent = '⏳ Scanning…';
 
-  // Show progress steps
-  out.innerHTML = `
-    <div class="scan-progress">
-      <div style="font-size:12px;font-weight:700;color:var(--t1);margin-bottom:12px">Scanning ${syms.length} stocks…</div>
-      <div class="scan-step active" id="ss1"><div class="scan-step-dot"></div>Checking global market health (Layer 1)…</div>
-      <div class="scan-step" id="ss2"><div class="scan-step-dot"></div>Fetching stock data from backend…</div>
-      <div class="scan-step" id="ss3"><div class="scan-step-dot"></div>Running 5-layer scoring on each stock…</div>
-      <div class="scan-step" id="ss4"><div class="scan-step-dot"></div>Filtering by confluence rules…</div>
-      <div class="scan-step" id="ss5"><div class="scan-step-dot"></div>Ranking top picks…</div>
-    </div>`;
-
-  const ssStep = (n, status) => {
-    for(let i=1;i<=5;i++) {
+  // Step display helper
+  const ssStep = (n, txt) => {
+    for (let i = 1; i <= 5; i++) {
       const el = document.getElementById('ss'+i);
-      if(!el) return;
-      if(i < n) el.className = 'scan-step done';
-      else if(i === n) el.className = 'scan-step ' + (status||'active');
-      else el.className = 'scan-step';
+      if (!el) continue;
+      el.className = i < n ? 'scan-step done' : i === n ? 'scan-step active' : 'scan-step';
+    }
+    if (txt) {
+      const el = document.getElementById('ss'+n);
+      if (el) el.lastChild.textContent = txt;
     }
   };
 
+  out.innerHTML = `
+    <div class="scan-progress">
+      <div style="font-size:12px;font-weight:700;color:var(--t1);margin-bottom:12px">Running STOCKSENSE scan…</div>
+      <div class="scan-step active" id="ss1"><div class="scan-step-dot"></div>Checking market health…</div>
+      <div class="scan-step" id="ss2"><div class="scan-step-dot"></div>Fetching + scoring stocks on server…</div>
+      <div class="scan-step" id="ss3"><div class="scan-step-dot"></div>Applying 5-layer filter…</div>
+      <div class="scan-step" id="ss4"><div class="scan-step-dot"></div>Ranking top picks…</div>
+      <div class="scan-step" id="ss5"><div class="scan-step-dot"></div>Building output…</div>
+    </div>`;
+
   try {
-    // LAYER 1: Market health
-    ssStep(1, 'active');
+    // Step 1: Market health
+    ssStep(1, 'Checking market health (VIX, Nifty, Crude)…');
     if (!window.MH_DATA) await checkMarketHealth();
     const l1 = calcLayer1();
-    ssStep(2, 'active');
 
-    // Fetch all stocks in parallel (use cached SD first, then fetch missing)
-    const toFetch = syms.filter(s => !SD[s] || SD[s].status !== 'ok');
-    const alreadyCached = syms.filter(s => SD[s]?.status === 'ok');
+    // Step 2: Call /scan-fast — server fetches + scores all stocks
+    ssStep(2, 'Server fetching & scoring 40+ stocks in parallel…');
+    const watchlistStr = SL.join(',');
+    const scanData = await api(
+      `/scan-fast?mode=${SCAN_MODE}&watchlist=${watchlistStr}`,
+      60000  // 60s timeout for full scan
+    );
 
-    // Fetch missing stocks in batches of 3
-    const BATCH = 3;
-    for (let i = 0; i < toFetch.length; i += BATCH) {
-      const batch = toFetch.slice(i, i + BATCH);
-      await Promise.allSettled(batch.map(async sym => {
+    ssStep(3, `Scored ${scanData.scanned||0} stocks, ${scanData.qualified||0} qualified…`);
+
+    const picks   = scanData.picks   || [];
+    const others  = scanData.others  || [];
+    const scanned = scanData.scanned || 0;
+
+    // Store fetched data in SD cache so detail analysis works
+    // Re-fetch top picks individually to get full indicator data
+    ssStep(4, 'Loading full data for top picks…');
+    const topSyms = picks.slice(0, 5).map(p => p.symbol);
+    await Promise.allSettled(topSyms.map(async sym => {
+      if (!SD[sym] || SD[sym].status !== 'ok') {
         try {
-          const d = await api('/stock?symbol=' + sym + '&range=30d', 12000);
+          const d = await api('/stock?symbol=' + sym + '&range=30d', 10000);
           if (d?.status === 'ok') SD[sym] = d;
         } catch {}
-      }));
-      // Update progress
-      const done = Math.min(i + BATCH, toFetch.length);
-      const el2 = document.getElementById('ss2');
-      if(el2) el2.querySelector('div+div,div:last-child') &&
-        (el2.lastChild.textContent = `Fetched ${alreadyCached.length + done}/${syms.length} stocks…`);
-    }
-    ssStep(3, 'active');
-
-    // Run 5-layer scoring on every loaded stock
-    const scored = [];
-    for (const sym of syms) {
-      const s = SD[sym];
-      if (!s || s.status !== 'ok') continue;
-
-      const l2 = calcLayer2(s);
-      const l3 = calcLayer3(s);
-      const l4 = calcLayer4(s, []);
-      const l5 = calcLayer5(s);
-      const final = calcFinalSignal(l1, l2, l3, l4);
-
-      // Only include if meets min score
-      if (final.total < minScore) continue;
-
-      // Only filter out true DANGER signals — keep WATCH for awareness
-      if (final.signal === 'DANGER') continue;
-      // For NO TRADE: only exclude if minScore is high (user wants only strong picks)
-      if (final.signal === 'NO TRADE' && minScore >= 15) continue;
-
-      const conf    = calcConfidence(l1, l2, l3, l4, l5, final);
-      const setup   = detectSetup(s);
-      const risk    = getRiskLevel(s, l1, l2, l5, conf);
-      const reasons = buildReasons(s, l2, l4, setup);
-      const tp      = buildTradePlan(s, final, l5, 25000);
-
-      scored.push({ sym, s, l1, l2, l3, l4, l5, final, conf, setup, risk, reasons, tp });
-    }
-
-    ssStep(4, 'active');
-
-    // CONFLUENCE FILTER: at least 2 layers positive OR strong tech signal
-    const filtered = scored.filter(p => {
-      const posLayers = [
-        p.l1.score >= 2,   // relaxed: 2 instead of 3
-        p.l2.score >= 3,   // relaxed: 3 instead of 4
-        p.l3.score >= 2,   // relaxed: 2 instead of 3
-        p.l4.score >= -1   // allow neutral news
-      ].filter(Boolean).length;
-      // Accept if 2+ layers agree OR if technical score alone is very strong
-      return posLayers >= 2 || p.l2.score >= 5;
-    });
-
-    // Sort: clear (unblocked) first, then by confidence, then total score
-    filtered.sort((a,b) => {
-      if (a.l5.clear && !b.l5.clear) return -1;
-      if (!a.l5.clear && b.l5.clear) return 1;
-      return b.conf - a.conf || b.final.total - a.final.total;
-    });
-    ssStep(5, 'active');
-
-    const top3 = filtered.slice(0, 3);
-
-    if (top3.length === 0) {
-      // Show best available even below threshold, with clear warnings
-      const bestAvail = filtered.length > 0 ? filtered : scored.sort((a,b)=>b.final.total-a.final.total).slice(0,3);
-      const mhData = window.MH_DATA || {};
-      let html2 = `
-        <div style="padding:14px 18px">
-          <div style="background:var(--hold-bg);border:1px solid var(--hold-bd);border-radius:var(--r12);padding:12px 14px;margin-bottom:12px">
-            <div style="font-size:12px;font-weight:700;color:var(--hold);margin-bottom:4px">⚠️ No High-Confidence Picks Today</div>
-            <div style="font-size:11px;color:var(--t2);line-height:1.6">
-              Scanned ${syms.filter(s=>SD[s]?.status==='ok').length} stocks. Market score: ${l1.score}/5 (${l1.status}).
-              ${mhData.vix >= 20 ? ` India VIX at ${mhData.vix} — elevated fear.` : ''}
-              ${l1.score < 3 ? ' Global conditions weak today.' : ''}
-              <br>Try: lower the min score threshold, or wait for better market conditions.
-            </div>
-          </div>`;
-      if (bestAvail.length > 0) {
-        html2 += `<div style="font-size:10px;font-family:var(--fm);color:var(--t3);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px">Best Available (Below Threshold)</div>`;
-        html2 += bestAvail.slice(0,5).map((p,i) => {
-          const sigCol2 = ['STRONG BUY','BUY'].includes(p.final.signal)?'var(--buy)':p.final.signal==='WEAK BUY'?'var(--hold)':'var(--sell)';
-          return `<div class="batch-pick" onclick="aiPickSym('${p.sym}');document.getElementById('ai-sym-inp').value='${p.sym}'">
-            <div class="batch-rank" style="font-size:12px">${i+1}</div>
-            <div class="batch-info">
-              <div class="batch-name">${p.s.name||p.sym}</div>
-              <div class="batch-meta">${p.sym} · ${p.setup} · RSI:${p.s.indicators?.rsi||'?'}</div>
-              <div style="margin-top:4px;display:flex;gap:5px;flex-wrap:wrap">
-                <span style="font-size:9px;padding:2px 7px;border-radius:4px;font-family:var(--fm);color:${sigCol2};background:${sigCol2}22;border:1px solid ${sigCol2}44">${p.final.signal}</span>
-                <span style="font-size:9px;font-family:var(--fm);color:var(--t3)">${p.final.total}/23</span>
-                ${!p.l5.clear?'<span style="font-size:9px;color:var(--sell);font-family:var(--fm)">⚠️ Risky</span>':''}
-              </div>
-            </div>
-            <div class="batch-right">
-              <div class="batch-price">₹${(p.s.price||0).toFixed(0)}</div>
-              <div style="font-size:10px;font-family:var(--fm);color:${p.conf>=60?'var(--hold)':'var(--sell)'}">⭐${p.conf}%</div>
-            </div>
-          </div>`;
-        }).join('');
       }
-      html2 += `</div>`;
-      out.innerHTML = html2;
-      btn.disabled=false; document.getElementById('scan-run-txt').textContent='🔍 Find Top Picks';
+    }));
+
+    ssStep(5, 'Rendering results…');
+
+    // Now re-score top picks using full JS 5-layer with real indicator data
+    // This gives more accurate results for the display
+    const fullScored = [];
+    for (const p of picks.slice(0, 10)) {
+      const sym = p.symbol;
+      const s   = SD[sym];
+      if (s?.status === 'ok') {
+        // Full JS scoring with complete data
+        const l2    = calcLayer2(s);
+        const l3    = calcLayer3(s);
+        const l4    = calcLayer4(s, []);
+        const l5    = calcLayer5(s);
+        const final = calcFinalSignal(l1, l2, l3, l4);
+        const conf  = calcConfidence(l1, l2, l3, l4, l5, final);
+        const setup = detectSetup(s);
+        const risk  = getRiskLevel(s, l1, l2, l5, conf);
+        const rsns  = buildReasons(s, l2, l4, setup);
+        const tp    = buildTradePlan(s, final, l5, 25000);
+        if (final.signal !== 'DANGER') {
+          fullScored.push({ sym, s, l1, l2, l3, l4, l5, final, conf, setup, risk, reasons: rsns, tp });
+        }
+      } else {
+        // Use server-scored data if we couldn't get full data
+        fullScored.push({
+          sym, s: { name: p.name, price: p.price, changePct: p.changePct,
+                    indicators: { rsi: p.rsi, volumeSignal: p.volumeSignal },
+                    sentiment: p.sentiment, recommendation: p.signal==='STRONG BUY'||p.signal==='BUY'?'BUY':p.signal==='AVOID'?'AVOID':'HOLD',
+                    confidence: p.confidence, high52w: 0, low52w: 0 },
+          l1, l2: {score: p.l2, rows:[]}, l3: {score: p.l3, rows:[]},
+          l4: {score: p.l4, rows:[], catalystAlert: false},
+          l5: {clear: true, blockers:[], softWarns:[], isThursday: new Date().getDay()===4},
+          final: { total: p.total, signal: p.signal,
+                   cls: ['STRONG BUY','BUY'].includes(p.signal)?'vb-buy':'vb-watch',
+                   emoji: ['STRONG BUY','BUY'].includes(p.signal)?'🟢':'🟡',
+                   col: ['STRONG BUY','BUY'].includes(p.signal)?'var(--buy)':'var(--hold)' },
+          conf: p.confidence, setup: p.setup||'Technical',
+          risk: p.confidence>=70?'Low':p.confidence>=55?'Medium':'High',
+          reasons: [{ico:'📊',txt:`Score ${p.total}/23 — ${p.setup||'Technical setup'}`},
+                    {ico:'📈',txt:`RSI: ${p.rsi} | Vol: ${p.volumeSignal}`},
+                    {ico:'💡',txt:`Entry ₹${p.entry} | SL ₹${p.sl} | T2 ₹${p.t2}`}],
+          tp: { show: true, entry: p.entry, sl: p.sl, t1: p.t1, t2: p.t2, t3: p.t3,
+                slPct: p.risk_pct, rr: p.rr, rrOk: p.rr >= 1.5,
+                shares: Math.floor(25000/p.entry), investment: Math.round(Math.floor(25000/p.entry)*p.entry),
+                profitT1: Math.round(Math.floor(25000/p.entry)*(p.t1-p.entry)),
+                profitT2: Math.round(Math.floor(25000/p.entry)*(p.t2-p.entry)),
+                maxLoss:  Math.round(Math.floor(25000/p.entry)*(p.entry-p.sl)) }
+        });
+      }
+    }
+
+    // Apply min score filter
+    const qualified = fullScored.filter(p => p.final.total >= minScore || p.conf >= 60);
+    const top3 = (qualified.length > 0 ? qualified : fullScored).slice(0, 3);
+
+    // ── RENDER ────────────────────────────────────────────────────
+    if (top3.length === 0) {
+      out.innerHTML = `<div class="no-picks">
+        <div style="font-size:28px;margin-bottom:8px">🔍</div>
+        <div style="font-weight:700;color:var(--t2);margin-bottom:6px">No picks found today</div>
+        <div>Scanned ${scanned} stocks. Market score: ${l1.score}/5 (${l1.status}).</div>
+        <div style="margin-top:8px;font-size:10px;color:var(--t3)">
+          Try: set Min Score to "11+ (Weak Buy)" · Switch universe to "All"
+        </div></div>`;
+      btn.disabled = false;
+      document.getElementById('scan-run-txt').textContent = '🔍 Find Top Picks';
       return;
     }
 
-    // ── RENDER RESULTS ────────────────────────────────────────────
     let html = '';
 
-    // Stock of the Day banner (rank 1)
-    const best = top3[0];
-    const whyBest = buildWhyBest(best.s, best.l1, best.l2, best.l3, best.l4, best.final, 1, top3);
-    const bestChgCls = (best.s.changePct||0) >= 0 ? 'up' : 'dn';
-    const bestExpMove = best.tp.show
-      ? `+${(((best.tp.t2 - best.tp.entry) / best.tp.entry)*100).toFixed(1)}% in 2–3 days`
-      : '+1–2% in 2–3 days';
-
-    // Market context banner
-    const mhD = window.MH_DATA || {};
-    const mktBannerCol = l1.score >= 4 ? 'var(--buy-bg)' : l1.score >= 3 ? 'var(--hold-bg)' : 'var(--sell-bg)';
-    const mktBannerBd  = l1.score >= 4 ? 'var(--buy-bd)' : l1.score >= 3 ? 'var(--hold-bd)' : 'var(--sell-bd)';
-    const mktBannerCol2= l1.score >= 4 ? 'var(--buy)' : l1.score >= 3 ? 'var(--hold)' : 'var(--sell)';
-    html += `<div style="margin:12px 18px 4px;padding:10px 14px;background:${mktBannerCol};border:1px solid ${mktBannerBd};border-radius:var(--r8);font-size:11px;font-family:var(--fm)">
-      <span style="color:${mktBannerCol2};font-weight:700">Market: ${l1.score}/5 — ${l1.status}</span>
-      <span style="color:var(--t3)"> &nbsp;|&nbsp; VIX: ${(mhD.vix||0).toFixed(1)} &nbsp;|&nbsp; Scanned: ${syms.filter(s=>SD[s]?.status==='ok').length} stocks &nbsp;|&nbsp; Qualified: ${filtered.length}</span>
-      ${mhD.vix >= 20 ? '<span style="color:var(--sell)"> &nbsp;|&nbsp; ⚠️ High VIX — use reduced position size</span>' : ''}
+    // Market context bar
+    const mhD   = window.MH_DATA || {};
+    const mktCol = l1.score>=4?'var(--buy)':l1.score>=3?'var(--hold)':'var(--sell)';
+    const mktBg  = l1.score>=4?'var(--buy-bg)':l1.score>=3?'var(--hold-bg)':'var(--sell-bg)';
+    const mktBd  = l1.score>=4?'var(--buy-bd)':l1.score>=3?'var(--hold-bd)':'var(--sell-bd)';
+    html += `<div style="margin:12px 18px 6px;padding:10px 14px;background:${mktBg};border:1px solid ${mktBd};border-radius:var(--r8);font-size:11px;font-family:var(--fm)">
+      <span style="color:${mktCol};font-weight:700">Market: ${l1.score}/5 — ${l1.status}</span>
+      <span style="color:var(--t3)"> &nbsp;|&nbsp; VIX: ${(mhD.vix||0).toFixed(1)} &nbsp;|&nbsp; Server scanned: ${scanned} stocks &nbsp;|&nbsp; Qualified: ${scanData.qualified||0}</span>
+      ${(mhD.vix||0)>=20?'<span style="color:var(--sell)"> &nbsp;|&nbsp; ⚠️ High VIX — use 50% position size</span>':''}
     </div>`;
 
-    html += `
-    <div class="sotd-banner" onclick="aiPickSym('${best.sym}');document.getElementById('ai-sym-inp').value='${best.sym}'">
+    // Stock of the Day
+    const best    = top3[0];
+    const bestChg = (best.s.changePct||0) >= 0 ? 'up' : 'dn';
+    const bestExp = best.tp?.show
+      ? `+${(((best.tp.t2-best.tp.entry)/best.tp.entry)*100).toFixed(1)}% in 2–3 days`
+      : '+1–2% in 2–3 days';
+    const whyBest = buildWhyBest(best.s, best.l1, best.l2, best.l3, best.l4, best.final, 1, top3);
+
+    html += `<div class="sotd-banner" onclick="aiPickSym('${best.sym}');document.getElementById('ai-sym-inp').value='${best.sym}'">
       <div class="sotd-rank">🏆 #1 STOCK OF THE DAY — ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</div>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
         <div>
@@ -3310,85 +3287,67 @@ async function runSmartScan() {
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:22px;font-weight:900;font-family:var(--fm);color:var(--t1)">₹${(best.s.price||0).toFixed(0)}</div>
-          <div class="${bestChgCls}" style="font-size:11px;font-family:var(--fm)">${(best.s.changePct||0)>=0?'+':''}${best.s.changePct||0}%</div>
+          <div class="${bestChg}" style="font-size:11px;font-family:var(--fm)">${(best.s.changePct||0)>=0?'+':''}${best.s.changePct||0}%</div>
           <div style="font-size:11px;font-family:var(--fm);color:#fbbf24;margin-top:4px">Conf: ${best.conf}%</div>
-          <div style="font-size:10px;font-family:var(--fm);color:var(--buy);margin-top:2px">${bestExpMove}</div>
+          <div style="font-size:10px;font-family:var(--fm);color:var(--buy);margin-top:2px">${bestExp}</div>
         </div>
       </div>
-      <div style="margin-top:10px;font-size:9px;font-family:var(--fm);color:var(--t3)">Click to run full 5-layer analysis →</div>
+      <div style="margin-top:8px;font-size:9px;font-family:var(--fm);color:var(--t3)">Click to run full 5-layer analysis →</div>
     </div>`;
 
-    // Rank 1, 2, 3 pick cards
-    const rankCls = ['pick-rank-1','pick-rank-2','pick-rank-3'];
+    // Pick cards
+    const rankCls   = ['pick-rank-1','pick-rank-2','pick-rank-3'];
     const rankMedal = ['🥇','🥈','🥉'];
-
     top3.forEach((p, idx) => {
-      const chgCls = (p.s.changePct||0) >= 0 ? 'up' : 'dn';
-      const sigCol = p.final.signal === 'STRONG BUY' || p.final.signal === 'BUY'
-        ? 'b-b' : p.final.signal === 'WEAK BUY' ? 'b-h' : 'b-s';
-      const riskCls = p.risk === 'Low' ? 'risk-low' : p.risk === 'Medium' ? 'risk-med' : 'risk-hi';
-      const confCol = p.conf >= 70 ? 'var(--buy)' : p.conf >= 55 ? 'var(--hold)' : 'var(--sell)';
-      const ind = p.s.indicators || {};
-
-      // Expected move from trade plan or estimate
-      const expMove = p.tp.show
-        ? `+${(((p.tp.t2 - p.tp.entry) / p.tp.entry)*100).toFixed(1)}%`
-        : p.final.signal === 'STRONG BUY' ? '+2–3%' : '+1–2%';
-
-      const tpSnippet = p.tp.show
-        ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;font-size:10px;font-family:var(--fm)">
-            <span style="color:var(--buy)">Entry ₹${inr(p.tp.entry)}</span>
-            <span style="color:var(--t3)">→</span>
-            <span style="color:var(--sell)">SL ₹${inr(p.tp.sl)}</span>
-            <span style="color:var(--t3)">→</span>
+      const chgCls  = (p.s.changePct||0)>=0?'up':'dn';
+      const sigCls  = ['STRONG BUY','BUY'].includes(p.final.signal)?'b-b':p.final.signal==='WEAK BUY'?'b-h':'b-s';
+      const riskCls = p.risk==='Low'?'risk-low':p.risk==='Medium'?'risk-med':'risk-hi';
+      const confCol = p.conf>=70?'var(--buy)':p.conf>=55?'var(--hold)':'var(--sell)';
+      const expMv   = p.tp?.show ? '+'+((( p.tp.t2-p.tp.entry)/p.tp.entry)*100).toFixed(1)+'%' : '+1–2%';
+      const tpLine  = p.tp?.show
+        ? `<div style="font-size:10px;font-family:var(--fm);margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">
+            <span style="color:var(--buy)">Entry ₹${inr(p.tp.entry)}</span><span style="color:var(--t3)">→</span>
+            <span style="color:var(--sell)">SL ₹${inr(p.tp.sl)}</span><span style="color:var(--t3)">→</span>
             <span style="color:#34d399">T1 ₹${inr(p.tp.t1)}</span>
             <span style="color:#22c55e">T2 ₹${inr(p.tp.t2)}</span>
            </div>` : '';
 
-      html += `
-      <div class="pick-card ${rankCls[idx]}" onclick="aiPickSym('${p.sym}');document.getElementById('ai-sym-inp').value='${p.sym}'">
+      html += `<div class="pick-card ${rankCls[idx]}" onclick="aiPickSym('${p.sym}');document.getElementById('ai-sym-inp').value='${p.sym}'">
         <div class="pick-hdr">
-          <div>
-            <div style="display:flex;align-items:center;gap:7px">
-              <span style="font-size:16px">${rankMedal[idx]}</span>
-              <div>
-                <div class="pick-name">${p.s.name||p.sym}</div>
-                <div class="pick-sym">${p.sym} · NSE · ${p.setup}</div>
-              </div>
-            </div>
+          <div style="display:flex;align-items:center;gap:7px">
+            <span style="font-size:16px">${rankMedal[idx]}</span>
+            <div><div class="pick-name">${p.s.name||p.sym}</div><div class="pick-sym">${p.sym} · ${p.setup}</div></div>
           </div>
           <div class="pick-price">
             <div class="pick-cmp">₹${(p.s.price||0).toFixed(0)}</div>
             <div class="pick-chg ${chgCls}">${(p.s.changePct||0)>=0?'+':''}${p.s.changePct||0}%</div>
           </div>
         </div>
-
         <div class="pick-badges">
-          <span class="bdg ${sigCol}">${p.final.signal}</span>
+          <span class="bdg ${sigCls}">${p.final.signal}</span>
           <span class="pick-setup">${p.setup}</span>
           <span class="pick-conf" style="background:${confCol}22;color:${confCol};border:1px solid ${confCol}44">⭐ ${p.conf}%</span>
           <span style="font-size:9px;font-family:var(--fm);color:var(--t3)">${p.final.total}/23</span>
         </div>
-
         <div class="pick-body">
           <div class="pick-col">
             <div class="pick-col-ttl">Reasoning</div>
-            ${p.reasons.map(r => `<div class="pick-factor"><span class="pf-ico">${r.ico}</span><span>${r.txt}</span></div>`).join('')}
+            ${(p.reasons||[]).map(r=>`<div class="pick-factor"><span class="pf-ico">${r.ico}</span><span>${r.txt}</span></div>`).join('')}
           </div>
           <div class="pick-col">
             <div class="pick-col-ttl">Layer Scores</div>
-            <div class="pick-factor"><span class="pf-ico">🌍</span><span>Market: ${p.l1.score}/5 — ${p.l1.status}</span></div>
+            <div class="pick-factor"><span class="pf-ico">🌍</span><span>Market: ${p.l1.score}/5</span></div>
             <div class="pick-factor"><span class="pf-ico">📊</span><span>Technical: ${p.l2.score}/7</span></div>
             <div class="pick-factor"><span class="pf-ico">💰</span><span>Fundamental: ${p.l3.score}/6</span></div>
             <div class="pick-factor"><span class="pf-ico">📰</span><span>News: ${p.l4.score>=0?'+':''}${p.l4.score}/5</span></div>
-            <div class="pick-factor"><span class="pf-ico">🚦</span><span>Risk: ${p.l5.clear && p.l5.softWarns.length===0 ? '✅ Clear' : p.l5.clear ? '⚠️ ' + (p.l5.softWarns[0]||'Trade with care').slice(0,50) : '🚨 ' + (p.l5.blockers[0]||'Hard block').slice(0,50)}</span></div>
+            <div class="pick-factor"><span class="pf-ico">🚦</span><span>${p.l5.clear?'✅ Clear':'⚠️ '+( p.l5.softWarns[0]||'').slice(0,35)}</span></div>
           </div>
         </div>
-
         <div class="pick-footer">
           <div>
-            <div class="pick-move" style="color:var(--buy)">Expected: ${expMove} in 2–3 days</div>
-            ${tpSnippet}
+            <div class="pick-move" style="color:var(--buy)">Expected: ${expMv} in 2–3 days</div>
+            ${tpLine}
+            ${p.l5.softWarns.length>0?`<div style="font-size:9px;color:var(--hold);margin-top:4px">⚠️ ${p.l5.softWarns[0]}</div>`:''}
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span class="pick-risk ${riskCls}">Risk: ${p.risk}</span>
@@ -3398,34 +3357,33 @@ async function runSmartScan() {
             </div>
           </div>
         </div>
-
-        <div style="margin-top:8px;font-size:9px;font-family:var(--fm);color:var(--t3)">
-          ⚠️ Not SEBI advice · Click card to run full 5-layer analysis
-        </div>
+        <div style="margin-top:6px;font-size:9px;font-family:var(--fm);color:var(--t3)">⚠️ Not SEBI advice · Click card for full 5-layer analysis</div>
       </div>`;
     });
 
-    // Summary bar
-    html += `
-    <div class="scan-summary">
-      <span class="ss-stat">Scanned: ${syms.filter(s=>SD[s]?.status==='ok').length} stocks</span>
-      <span class="ss-stat">Passed filter: ${filtered.length}</span>
-      <span class="ss-stat">Min score: ${minScore}/23</span>
-      <span class="ss-stat">Market: ${l1.score}/5 — ${l1.status}</span>
-      <span class="ss-stat" style="color:var(--t3)">${new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})} IST</span>
+    html += `<div class="scan-summary">
+      <span class="ss-stat">Server scanned: ${scanned}</span>
+      <span class="ss-stat">Qualified: ${scanData.qualified||0}</span>
+      <span class="ss-stat">Showing top ${top3.length}</span>
+      <span class="ss-stat">Market: ${l1.score}/5</span>
+      <span class="ss-stat">${scanData.timestamp||''}</span>
     </div>`;
 
+    ssStep(5, 'Done!');
     out.innerHTML = html;
 
   } catch(e) {
-    out.innerHTML = `<div class="no-picks"><div style="color:var(--sell)">Scan failed: ${e.message}</div></div>`;
+    out.innerHTML = `<div class="no-picks">
+      <div style="font-size:28px;margin-bottom:8px">⚠️</div>
+      <div style="font-weight:700;color:var(--sell);margin-bottom:6px">Scan failed</div>
+      <div style="font-size:11px;color:var(--t3)">${e.message}</div>
+      <div style="margin-top:8px;font-size:10px;color:var(--t3)">Make sure your server is running and deployed. Try again in 30 seconds.</div>
+    </div>`;
     console.error('SmartScan error:', e);
   }
-
   btn.disabled = false;
   document.getElementById('scan-run-txt').textContent = '🔍 Find Top Picks';
 }
-
 // Auto-update universe label when page loads
 function initScannerLabel() {
   const el = document.getElementById('scan-universe-lbl');
