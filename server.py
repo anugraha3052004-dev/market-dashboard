@@ -1,5 +1,5 @@
 """
-India Market Dashboard - Backend v5.78
+India Market Dashboard - Backend v5
 Commodities  → Twelve Data + gold-api.com (free)
 NSE Stocks   → Yahoo Finance (parallel + 5-min cache)
 News         → Yahoo Finance RSS (free)
@@ -1484,6 +1484,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/sw.js":
             self.send_file("static/sw.js","application/javascript"); return
+
+        if path == "/app.js":
+            self.send_file("app.js","application/javascript"); return
 
         if path in ("/icon-192.png","/icon-512.png"):
             self.send_file("static"+path,"image/png"); return
