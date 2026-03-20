@@ -1,5 +1,5 @@
 """
-India Market Dashboard - Backend v5
+India Market Dashboard - Backend v6
 Commodities  → Twelve Data + gold-api.com (free)
 NSE Stocks   → Yahoo Finance (parallel + 5-min cache)
 News         → Yahoo Finance RSS (free)
@@ -14,34 +14,99 @@ from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 import xml.etree.ElementTree as ET
 
+import random
 API_KEY          = os.environ.get("TWELVE_DATA_API_KEY","")
 TWELVE_DATA_BASE = "https://api.twelvedata.com"
-YF_BASE          = "https://query1.finance.yahoo.com/v8/finance/chart"
-YF_BASE2         = "https://query2.finance.yahoo.com/v8/finance/chart"
-YF_HEADERS       = {
-    "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36",
-    "Accept":"application/json,text/plain,*/*",
-    "Accept-Language":"en-US,en;q=0.9",
-    "Referer":"https://finance.yahoo.com",
-    "Connection":"keep-alive",
-}
 
-# ── 5-MINUTE IN-MEMORY CACHE ────────────────────────────────────────────────
-_cache = {}
+# Multiple Yahoo endpoints for load balancing
+YF_BASES = [
+    "https://query1.finance.yahoo.com/v8/finance/chart",
+    "https://query2.finance.yahoo.com/v8/finance/chart",
+]
+
+# Rotate User-Agents to avoid rate limiting
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+]
+
+def get_yf_headers():
+    """Return headers with a random User-Agent to avoid rate limiting."""
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "application/json,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://finance.yahoo.com",
+        "Origin": "https://finance.yahoo.com",
+        "Connection": "keep-alive",
+        "Cache-Control": "no-cache",
+    }
+
+# Keep old names for compatibility
+YF_BASE  = YF_BASES[0]
+YF_BASE2 = YF_BASES[1]
+YF_HEADERS = get_yf_headers()
+
+# ── MULTI-LEVEL CACHE ────────────────────────────────────────────────────────
+# Level 1: In-memory (fast, lost on restart)
+# Level 2: Disk cache (persistent across restarts)
+_cache     = {}
 _cache_lck = threading.Lock()
-CACHE_TTL = 300
+CACHE_TTL  = 300   # 5 min for stock prices
+DISK_CACHE_FILE = "price_cache.json"
+_disk_cache = {}
+_disk_loaded = False
+
+def _load_disk_cache():
+    global _disk_cache, _disk_loaded
+    if _disk_loaded: return
+    try:
+        with open(DISK_CACHE_FILE, "r") as f:
+            _disk_cache = json.load(f)
+        print(f"  [CACHE] Loaded {len(_disk_cache)} entries from disk")
+    except:
+        _disk_cache = {}
+    _disk_loaded = True
+
+def _save_disk_cache():
+    try:
+        # Only save entries < 30 mins old
+        now = time.time()
+        fresh = {k:v for k,v in _disk_cache.items() if now - v.get("ts",0) < 1800}
+        with open(DISK_CACHE_FILE, "w") as f:
+            json.dump(fresh, f)
+    except: pass
 
 def cache_get(key):
+    _load_disk_cache()
     with _cache_lck:
+        # Check memory first
         e = _cache.get(key)
         if e and (time.time() - e["ts"]) < CACHE_TTL:
-            print(f"  [CACHE HIT] {key}")
+            return e["data"]
+        # Check disk (30 min TTL for disk cache — good for scan results)
+        e = _disk_cache.get(key)
+        if e and (time.time() - e["ts"]) < 1800:
+            print(f"  [DISK CACHE HIT] {key}")
+            # Promote to memory
+            _cache[key] = e
             return e["data"]
     return None
 
-def cache_set(key, data):
+def cache_set(key, data, ttl=None):
+    _load_disk_cache()
     with _cache_lck:
-        _cache[key] = {"data": data, "ts": time.time()}
+        entry = {"data": data, "ts": time.time()}
+        _cache[key] = entry
+        # Also save to disk (for scan results and stock data)
+        _disk_cache[key] = entry
+    # Save disk cache in background
+    threading.Thread(target=_save_disk_cache, daemon=True).start()
 # ── BATCH SCAN STORAGE (end-of-day results) ─────────────────────────────────
 SCAN_RESULTS_FILE = "scan_results.json"
 _scan_lock = threading.Lock()
@@ -370,10 +435,13 @@ def fetch_yahoo(symbol, range_="30d"):
         return cached
 
     print(f"\n  [YAHOO] Fetching {yf_sym}...")
-    for attempt, base in enumerate([YF_BASE, YF_BASE2], 1):
+    # Shuffle bases so load is distributed across Yahoo endpoints
+    bases = YF_BASES.copy()
+    random.shuffle(bases)
+    for attempt, base in enumerate(bases, 1):
         try:
             url = f"{base}/{yf_sym}?interval=1d&range={range_}"
-            req = Request(url, headers=YF_HEADERS)
+            req = Request(url, headers=get_yf_headers())  # fresh headers each time
             with urlopen(req, timeout=8) as r:
                 data = json.loads(r.read())
             res  = data["chart"]["result"][0]
@@ -1830,6 +1898,39 @@ def run():
     # Start background services
     threading.Thread(target=batch_scan_scheduler, daemon=True).start()
     threading.Thread(target=check_alerts, daemon=True).start()
+
+    # Pre-warm cache with top 15 liquid stocks on startup
+    def prewarm():
+        time.sleep(5)  # wait for server to fully start
+        TOP_15 = ["RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK",
+                  "SBIN","BAJFINANCE","ITC","BHARTIARTL","WIPRO",
+                  "AXISBANK","TATAMOTORS","HCLTECH","SUNPHARMA","LT"]
+        print("  [STARTUP] Pre-warming cache for top 15 stocks…")
+        fetch_yahoo_multi(TOP_15, "20d")
+        print("  [STARTUP] Cache pre-warm done.")
+        # Also run scan-fast in background so first click is instant
+        try:
+            from_cache = cache_get("scan-fast-nse")
+            if not from_cache:
+                print("  [STARTUP] Pre-computing NSE scan…")
+                # Simulate /scan-fast for nse mode
+                NSE_30 = TOP_15 + ["MARUTI","JSWSTEEL","TATASTEEL","NTPC",
+                                    "ONGC","POWERGRID","ADANIENT","DRREDDY",
+                                    "CIPLA","TITAN","NESTLEIND","TECHM","HINDALCO","KOTAKBANK","BAJAJFINSV"]
+                all_data = fetch_yahoo_multi(NSE_30, "20d")
+                scored = [r for r in [score_stock_python(d) for d in all_data.values()] if r]
+                scored.sort(key=lambda x: (-x["confidence"], -x["total"]))
+                buys = [s for s in scored if s["signal"] in ("STRONG BUY","BUY","WEAK BUY")]
+                cache_set("scan-fast-nse", {
+                    "picks": buys[:10], "others": scored[:5],
+                    "scanned": len(all_data), "qualified": len(buys),
+                    "mode": "nse", "timestamp": time.strftime("%H:%M IST")
+                })
+                print(f"  [STARTUP] NSE scan cached: {len(buys)} picks found")
+        except Exception as e:
+            print(f"  [STARTUP] Pre-scan error: {e}")
+
+    threading.Thread(target=prewarm, daemon=True).start()
 
     # Run initial batch scan on startup (in background, non-blocking)
     saved = load_scan_results()
