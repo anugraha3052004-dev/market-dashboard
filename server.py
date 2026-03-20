@@ -839,6 +839,166 @@ def fetch_td_batch_quote(symbols):
         return {}
 
 
+def fetch_stocks_master(symbols):
+    """
+    MASTER STOCK FETCHER — Proper Architecture
+    
+    Priority:
+    1. Check cache (returns instantly if < 5 min old)
+    2. Twelve Data batch time_series (1 call = all stocks with history)
+    3. Yahoo Finance fallback (if TD fails or no API key)
+    
+    Returns: {symbol: full_stock_dict} with RSI, MACD, SMA etc
+    """
+    if not symbols:
+        return {}
+    
+    # Step 1: Check what's already cached
+    result   = {}
+    need_fetch = []
+    for sym in symbols:
+        clean = sym.upper().replace(".NS","").replace(".BO","").strip()
+        cached = cache_get(f"{clean}:30d") or cache_get(f"{clean}:20d")
+        if cached and cached.get("status") == "ok":
+            result[clean] = cached
+        else:
+            need_fetch.append(clean)
+    
+    if not need_fetch:
+        print(f"  [MASTER] All {len(result)} stocks from cache")
+        return result
+    
+    print(f"  [MASTER] {len(result)} cached, fetching {len(need_fetch)} fresh")
+    
+    # Step 2: Twelve Data batch time_series (1 API call for all)
+    if API_KEY and need_fetch:
+        td_syms = ",".join([f"{s}:NSE" for s in need_fetch])
+        try:
+            url = (f"{TWELVE_DATA_BASE}/time_series"
+                   f"?symbol={td_syms}"
+                   f"&interval=1day"
+                   f"&outputsize=30"
+                   f"&dp=2"
+                   f"&apikey={API_KEY}")
+            print(f"  [MASTER] TD batch time_series: {len(need_fetch)} stocks in 1 call")
+            req = Request(url, headers={"User-Agent": "MarketDashboard/1.0"})
+            with urlopen(req, timeout=20) as r:
+                raw = json.loads(r.read().decode())
+            
+            # TD returns single stock differently from batch
+            if "values" in raw:
+                # Single stock — wrap it
+                sym_key = raw.get("meta", {}).get("symbol", need_fetch[0] + ":NSE")
+                raw = {sym_key: raw}
+            
+            td_got = []
+            for td_sym, ts_data in raw.items():
+                if not isinstance(ts_data, dict):
+                    continue
+                if ts_data.get("status") == "error" or "values" not in ts_data:
+                    continue
+                
+                sym = td_sym.replace(":NSE","").replace(":BSE","")
+                try:
+                    values = ts_data["values"]  # newest first
+                    values_asc = list(reversed(values))  # oldest first for indicators
+                    
+                    closes  = [float(v["close"])  for v in values_asc if v.get("close")]
+                    volumes = [int(float(v.get("volume",0))) for v in values_asc]
+                    highs   = [float(v["high"])   for v in values_asc if v.get("high")]
+                    lows    = [float(v["low"])    for v in values_asc if v.get("low")]
+                    
+                    if not closes:
+                        continue
+                    
+                    # Current price from most recent value
+                    meta     = ts_data.get("meta", {})
+                    price    = float(meta.get("regularMarketPrice") or closes[-1])
+                    prev     = float(closes[-2] if len(closes) > 1 else price)
+                    chg      = round(price - prev, 2)
+                    chg_pct  = round((chg / prev * 100) if prev else 0, 2)
+                    volume   = volumes[-1] if volumes else 0
+                    name     = meta.get("symbol", sym).replace(":NSE","")
+                    h52      = max(highs) if highs else price * 1.3
+                    l52      = min(lows)  if lows  else price * 0.7
+                    
+                    # Compute all technical indicators
+                    sma20  = calc_sma(closes, 20)
+                    sma50  = calc_sma(closes, 50)
+                    ema9   = calc_ema(closes, 9)
+                    rsi    = calc_rsi(closes)
+                    macd, sig_line, macd_hist = calc_macd(closes)
+                    support, resistance = calc_support_resistance(closes)
+                    vol_sig = calc_volume_signal(volumes[-10:] if len(volumes)>=10 else volumes)
+                    
+                    spread = ((price - support) / support * 100) if support and price else None
+                    confidence = calc_confidence(rsi, macd_hist, vol_sig, chg_pct, spread)
+                    rec, sentiment, reasons, strat_pts = get_recommendation(
+                        rsi, macd_hist, chg_pct, vol_sig, price,
+                        support, resistance, sma20, sma50, ema9
+                    )
+                    trade_levels = calc_trade_levels(price, support, resistance, rec, rsi, sma20)
+                    
+                    # Build history array
+                    history = []
+                    for v in values_asc[-30:]:
+                        try:
+                            history.append({
+                                "date":   v.get("datetime","")[:10],
+                                "close":  round(float(v["close"]),2),
+                                "high":   round(float(v.get("high",0)),2),
+                                "low":    round(float(v.get("low",0)),2),
+                                "volume": int(float(v.get("volume",0)))
+                            })
+                        except: pass
+                    
+                    stock = {
+                        "symbol": sym, "name": name,
+                        "price": round(price,2), "change": chg, "changePct": chg_pct,
+                        "prevClose": round(prev,2), "volume": int(volume),
+                        "high52w": round(h52,2), "low52w": round(l52,2),
+                        "history": history,
+                        "indicators": {
+                            "sma20": sma20, "sma50": sma50, "ema9": ema9,
+                            "rsi": rsi, "macd": macd, "macdSignal": sig_line,
+                            "macdHist": macd_hist, "support": support,
+                            "resistance": resistance, "volumeSignal": vol_sig,
+                        },
+                        "recommendation": rec,
+                        "sentiment":      sentiment,
+                        "confidence":     confidence,
+                        "reasons":        reasons,
+                        "strategyPoints": strat_pts,
+                        "tradeLevels":    trade_levels,
+                        "source": "twelvedata",
+                        "status": "ok"
+                    }
+                    result[sym] = stock
+                    cache_set(f"{sym}:30d", stock)
+                    td_got.append(sym)
+                    print(f"  [MASTER] TD OK: {sym} ₹{price} RSI={rsi}")
+                    
+                except Exception as ex:
+                    print(f"  [MASTER] TD parse error {td_sym}: {ex}")
+            
+            print(f"  [MASTER] TD got {len(td_got)}/{len(need_fetch)} stocks")
+            need_fetch = [s for s in need_fetch if s not in td_got]
+            
+        except Exception as e:
+            print(f"  [MASTER] TD batch failed: {e} — falling to Yahoo")
+    
+    # Step 3: Yahoo Finance for anything TD couldn't get
+    if need_fetch:
+        print(f"  [MASTER] Yahoo fallback for {len(need_fetch)} stocks")
+        yahoo_data = fetch_yahoo_multi(need_fetch, "30d")
+        for sym, d in yahoo_data.items():
+            if d.get("status") == "ok":
+                result[sym] = d
+    
+    print(f"  [MASTER] Done: {len(result)}/{len(symbols)} stocks ready")
+    return result
+
+
 def fetch_td_time_series(symbol, outputsize=30):
     """
     Fetch daily OHLCV history for ONE stock from Twelve Data.
@@ -1334,71 +1494,21 @@ class Handler(BaseHTTPRequestHandler):
 
         # single stock with full indicators
         if path == "/stock":
-            sym   = flat.get("symbol","").strip()
-            range_ = flat.get("range","30d")
+            sym = flat.get("symbol","").strip()
             if not sym: self.send_json({"error":"Missing symbol"},400); return
-
-            # Check cache first
             clean = sym.upper().replace(".NS","").replace(".BO","").strip()
-            cached = cache_get(f"{clean}:{range_}") or cache_get(f"{clean}:30d") or cache_get(f"{clean}:20d")
-            if cached and cached.get("status") == "ok":
-                self.send_json(cached); return
-
-            # Try Twelve Data first (faster, more reliable on Render)
-            result = None
-            if API_KEY:
-                try:
-                    td_batch = fetch_td_batch_quote([clean])
-                    if clean in td_batch:
-                        result = build_stock_from_td(td_batch[clean], clean, compute_indicators=True)
-                except Exception as e:
-                    print(f"  [TD /stock] Failed for {clean}: {e}")
-
-            # Fall back to Yahoo Finance
-            if not result or result.get("status") != "ok":
-                result = fetch_yahoo(sym, range_)
-
+            # Use master fetcher — handles cache + TD + Yahoo automatically
+            data = fetch_stocks_master([clean])
+            result = data.get(clean) or {"symbol":clean,"status":"error","error":"Could not load stock"}
             self.send_json(result); return
 
-        # multiple stocks — Twelve Data batch first, Yahoo fallback
+        # multiple stocks — Master fetcher (TD batch time_series + Yahoo fallback)
         if path == "/stocks":
             raw = flat.get("symbols","").strip()
             if not raw: self.send_json({"error":"Missing symbols"},400); return
             syms = [s.strip().upper().replace(".NS","").replace(".BO","") for s in raw.split(",") if s.strip()][:20]
-
-            out = {}
-            # Check cache for each symbol first
-            need = []
-            for s in syms:
-                c = cache_get(f"{s}:30d") or cache_get(f"{s}:20d")
-                if c and c.get("status") == "ok":
-                    out[s] = c
-                else:
-                    need.append(s)
-
-            if need:
-                if API_KEY:
-                    # One TD batch call for all missing
-                    td = fetch_td_batch_quote(need)
-                    td_missing = []
-                    for s in need:
-                        if s in td:
-                            built = build_stock_from_td(td[s], s, compute_indicators=True)
-                            if built and built.get("status") == "ok":
-                                out[s] = built
-                            else:
-                                td_missing.append(s)
-                        else:
-                            td_missing.append(s)
-                    # Yahoo only for what TD couldn't get
-                    if td_missing:
-                        yahoo = fetch_yahoo_multi(td_missing, "20d")
-                        out.update(yahoo)
-                else:
-                    yahoo = fetch_yahoo_multi(need, "20d")
-                    out.update(yahoo)
-
-            self.send_json(out); return
+            result = fetch_stocks_master(syms)
+            self.send_json(result); return
 
         # stock news — with impact scoring
         if path == "/news":
@@ -1787,53 +1897,9 @@ class Handler(BaseHTTPRequestHandler):
 
             all_data = {}
 
-            # LAYER A: Check memory/disk cache for each stock
-            already_cached = []
-            need_fetch     = []
-            for sym in candidates:
-                cached_stock = cache_get(f"{sym}:20d") or cache_get(f"{sym}:30d") or cache_get(f"{sym}:60d")
-                if cached_stock and cached_stock.get("status") == "ok":
-                    all_data[sym] = cached_stock
-                    already_cached.append(sym)
-                else:
-                    need_fetch.append(sym)
-
-            print(f"  [SCAN-FAST] Layer A cache: {len(already_cached)} stocks ready, {len(need_fetch)} to fetch")
-
-            if need_fetch:
-                if API_KEY:
-                    # LAYER B: Twelve Data batch — 1 call for ALL missing stocks
-                    print(f"  [SCAN-FAST] Layer B: TD batch for {len(need_fetch)} stocks")
-                    td_results = fetch_td_batch_quote(need_fetch)
-
-                    td_got   = []
-                    still_missing = []
-                    for sym in need_fetch:
-                        if sym in td_results:
-                            td = td_results[sym]
-                            stock = build_stock_from_td(td, sym, compute_indicators=False)
-                            if stock:
-                                all_data[sym] = stock
-                                td_got.append(sym)
-                            else:
-                                still_missing.append(sym)
-                        else:
-                            still_missing.append(sym)
-
-                    print(f"  [SCAN-FAST] Layer B TD: {len(td_got)} got, {len(still_missing)} still missing")
-
-                    # LAYER C: Yahoo only for stocks TD couldn't get (usually 0-3)
-                    if still_missing:
-                        print(f"  [SCAN-FAST] Layer C: Yahoo for {len(still_missing)} stocks")
-                        yahoo_data = fetch_yahoo_multi(still_missing[:8], "20d")
-                        all_data.update({k:v for k,v in yahoo_data.items() if v.get("status")=="ok"})
-                else:
-                    # No Twelve Data key → Yahoo only (slower but works)
-                    print(f"  [SCAN-FAST] No TD key — Yahoo for {len(need_fetch)} stocks")
-                    yahoo_data = fetch_yahoo_multi(need_fetch, "20d")
-                    all_data.update({k:v for k,v in yahoo_data.items() if v.get("status")=="ok"})
-
-            print(f"  [SCAN-FAST] Total ready: {len(all_data)}/{len(candidates)} stocks")
+            # Use master fetcher — handles cache + TD batch + Yahoo fallback
+            all_data = fetch_stocks_master(candidates)
+            print(f"  [SCAN-FAST] Master fetcher: {len(all_data)}/{len(candidates)} stocks ready")
 
             # Score each stock
             scored = []
@@ -2203,12 +2269,10 @@ def run():
         TOP_15 = ["RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK",
                   "SBIN","BAJFINANCE","ITC","BHARTIARTL","WIPRO",
                   "AXISBANK","TATAMOTORS","HCLTECH","SUNPHARMA","LT"]
-        print("  [STARTUP] Pre-warming cache for top 15 stocks…")
-        # Fetch Yahoo data for top 15 — this puts them in cache as "SYM:20d"
-        # so scan-fast Layer A finds them instantly
-        yahoo_warm = fetch_yahoo_multi(TOP_15, "20d")
-        warm_count = sum(1 for v in yahoo_warm.values() if v.get("status")=="ok")
-        print(f"  [STARTUP] Pre-warm done: {warm_count}/15 stocks cached")
+        print("  [STARTUP] Pre-warming cache using master fetcher…")
+        warm_data = fetch_stocks_master(TOP_15)
+        warm_count = sum(1 for v in warm_data.values() if v.get("status")=="ok")
+        print(f"  [STARTUP] Pre-warm done: {warm_count}/15 stocks cached via TD+Yahoo")
         # Also run scan-fast in background so first click is instant
         try:
             from_cache = cache_get("scan-fast-nse")
