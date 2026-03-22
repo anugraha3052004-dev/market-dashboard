@@ -1,5 +1,5 @@
 """
-India Market Dashboard - Backend v5.55
+India Market Dashboard - Backend v5
 Commodities  → Twelve Data + gold-api.com (free)
 NSE Stocks   → Yahoo Finance (parallel + 5-min cache)
 News         → Yahoo Finance RSS (free)
