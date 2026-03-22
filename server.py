@@ -8,6 +8,13 @@ Price Alerts → Monitor user-set alerts every 5 minutes
 Universe     → 150 liquid NSE stocks + ETFs
 """
 import os, json, time, math, threading, re, datetime
+try:
+    import yfinance as yf
+    YF_LIB = True
+    print("  [INIT] yfinance library loaded successfully")
+except ImportError:
+    YF_LIB = False
+    print("  [INIT] yfinance not available — using direct URL fetch")
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, urlencode
 from urllib.request import urlopen, Request
@@ -424,6 +431,91 @@ def calc_trade_levels(price, support, resistance, rec, rsi, sma20):
         }
 
 # ── YAHOO FINANCE FETCH (with cache) ────────────────────────────────────────
+def fetch_yahoo_yf(symbol, range_="30d"):
+    """Fetch using yfinance library — handles Yahoo blocks properly."""
+    clean  = symbol.upper().replace(".NS","").replace(".BO","").strip()
+    cache_key = f"{clean}:{range_}"
+    cached = cache_get(cache_key)
+    if cached: return cached
+
+    try:
+        print(f"  [YF-LIB] Fetching {clean}.NS...")
+        ticker  = yf.Ticker(f"{clean}.NS")
+        hist    = ticker.history(period="1mo" if "30" in range_ else "2mo")
+        info    = ticker.fast_info
+
+        if hist.empty:
+            print(f"  [YF-LIB] Empty history for {clean}")
+            return {"symbol": clean, "status": "error", "error": "No data"}
+
+        closes  = hist["Close"].tolist()
+        volumes = hist["Volume"].tolist()
+        highs   = hist["High"].tolist()
+        lows    = hist["Low"].tolist()
+        dates   = [str(d)[:10] for d in hist.index]
+
+        price  = float(info.last_price or closes[-1])
+        prev   = float(closes[-2] if len(closes) > 1 else price)
+        chg    = round(price - prev, 2)
+        pct    = round((chg/prev*100) if prev else 0, 2)
+        volume = int(info.last_volume or volumes[-1] or 0)
+        name   = clean
+
+        try:
+            slow_info = ticker.info
+            name = slow_info.get("longName") or slow_info.get("shortName") or clean
+            h52  = float(slow_info.get("fiftyTwoWeekHigh") or max(highs))
+            l52  = float(slow_info.get("fiftyTwoWeekLow")  or min(lows))
+        except:
+            h52 = max(highs) if highs else price * 1.3
+            l52 = min(lows)  if lows  else price * 0.7
+
+        sma20  = calc_sma(closes, 20)
+        sma50  = calc_sma(closes, 50)
+        ema9   = calc_ema(closes, 9)
+        rsi    = calc_rsi(closes)
+        macd, sig_line, macd_hist = calc_macd(closes)
+        support, resistance = calc_support_resistance(closes)
+        vol_sig = calc_volume_signal(volumes[-10:] if len(volumes) >= 10 else volumes)
+
+        spread = ((price - support)/support*100) if support and price else None
+        confidence = calc_confidence(rsi, macd_hist, vol_sig, pct, spread)
+        rec, sentiment, reasons, strat_pts = get_recommendation(
+            rsi, macd_hist, pct, vol_sig, price, support, resistance, sma20, sma50, ema9
+        )
+        trade_levels = calc_trade_levels(price, support, resistance, rec, rsi, sma20)
+
+        history = [{"date": d, "close": round(float(c),2),
+                    "high": round(float(h),2), "low": round(float(l),2),
+                    "volume": int(v)}
+                   for d,c,h,l,v in zip(dates, closes, highs, lows, volumes)]
+
+        result = {
+            "symbol": clean, "name": name,
+            "price": round(price,2), "change": chg, "changePct": pct,
+            "prevClose": round(prev,2), "volume": volume,
+            "high52w": round(h52,2), "low52w": round(l52,2),
+            "history": history,
+            "indicators": {
+                "sma20":sma20,"sma50":sma50,"ema9":ema9,
+                "rsi":rsi,"macd":macd,"macdSignal":sig_line,
+                "macdHist":macd_hist,"support":support,
+                "resistance":resistance,"volumeSignal":vol_sig,
+            },
+            "recommendation":rec,"sentiment":sentiment,
+            "confidence":confidence,"reasons":reasons,
+            "strategyPoints":strat_pts,"tradeLevels":trade_levels,
+            "source":"yfinance","status":"ok"
+        }
+        print(f"  [YF-LIB] OK: {clean} ₹{price} RSI={rsi} {rec}")
+        cache_set(cache_key, result)
+        return result
+
+    except Exception as e:
+        print(f"  [YF-LIB] Failed {clean}: {e}")
+        return {"symbol": clean, "status": "error", "error": str(e)}
+
+
 def fetch_yahoo(symbol, range_="30d"):
     clean  = symbol.upper().replace(".NS","").replace(".BO","").strip()
     yf_sym = clean + ".NS"
@@ -434,8 +526,11 @@ def fetch_yahoo(symbol, range_="30d"):
     if cached:
         return cached
 
-    print(f"\n  [YAHOO] Fetching {yf_sym}...")
-    # Try multiple Yahoo endpoints with longer timeout
+    # Use yfinance library if available (handles Yahoo blocks)
+    if YF_LIB:
+        return fetch_yahoo_yf(symbol, range_)
+
+    print(f"\n  [YAHOO] Fetching {yf_sym} via direct URL...")
     bases = YF_BASES.copy()
     random.shuffle(bases)
     for attempt, base in enumerate(bases, 1):
