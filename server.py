@@ -1,5 +1,5 @@
 """
-India Market Dashboard - Backend v5
+India Market Dashboard - Backend v5.2
 Commodities  → Twelve Data + gold-api.com (free)
 NSE Stocks   → Yahoo Finance (parallel + 5-min cache)
 News         → Yahoo Finance RSS (free)
@@ -957,17 +957,18 @@ def fetch_td_history_parallel(sym, result_dict, lock):
 
 def fetch_stocks_master(symbols):
     """
-    MASTER STOCK FETCHER - Reliable parallel fetch
+    MASTER STOCK FETCHER - Stooq primary (free, no blocks)
     1. Cache check (instant)
-    2. Yahoo Finance parallel (all stocks at once, 15s timeout)
-    3. Twelve Data /quote fallback for any Yahoo failures
+    2. TD /quote batch for live prices (1 API call)
+    3. Stooq history parallel for all stocks (OHLCV, indicators)
+    4. Build complete stock objects
     """
     if not symbols:
         return {}
 
     syms = [s.upper().replace(".NS","").replace(".BO","").strip() for s in symbols]
 
-    # Step 1: Cache check
+    # Step 1: Cache
     result     = {}
     need_fetch = []
     for sym in syms:
@@ -978,85 +979,211 @@ def fetch_stocks_master(symbols):
             need_fetch.append(sym)
 
     if not need_fetch:
-        print(f"  [MASTER] All {len(result)} from cache — instant!")
+        print(f"  [MASTER] All {len(result)} from cache")
         return result
 
-    print(f"  [MASTER] Fetching {len(need_fetch)} stocks in parallel...")
+    print(f"  [MASTER] Fetching {len(need_fetch)}: {need_fetch}")
 
-    # Step 2: Yahoo Finance - all stocks simultaneously
-    yahoo_data = fetch_yahoo_multi(need_fetch, "30d")
-    yahoo_ok   = []
-    yahoo_fail = []
+    # Step 2: TD /quote for live prices (1 call for all)
+    td_quotes = {}
+    if API_KEY:
+        try:
+            td_syms = ",".join([f"{s}:NSE" for s in need_fetch])
+            url = f"{TWELVE_DATA_BASE}/quote?symbol={td_syms}&dp=2&apikey={API_KEY}"
+            req = Request(url, headers={"User-Agent":"MarketDashboard/1.0"})
+            with urlopen(req, timeout=12) as r:
+                raw = json.loads(r.read().decode())
+            if isinstance(raw, dict) and "close" in raw:
+                raw = {raw.get("symbol", need_fetch[0]+":NSE"): raw}
+            for td_sym, q in raw.items():
+                if isinstance(q, dict) and q.get("close"):
+                    sym = td_sym.replace(":NSE","").replace(":BSE","")
+                    td_quotes[sym] = q
+            print(f"  [MASTER] TD quotes: {len(td_quotes)}/{len(need_fetch)}")
+        except Exception as e:
+            print(f"  [MASTER] TD quote failed: {e}")
 
+    # Step 3: Stooq history for all stocks in parallel
+    hist_data = {}
+    hist_lock = threading.Lock()
+    threads   = [threading.Thread(
+                    target=fetch_stooq_history_thread,
+                    args=(sym, hist_data, hist_lock), daemon=True)
+                 for sym in need_fetch]
+    for t in threads: t.start()
+    for t in threads: t.join(timeout=12)
+    print(f"  [MASTER] Stooq history: {len(hist_data)} stocks")
+
+    # Step 4: Build stock objects
     for sym in need_fetch:
-        d = yahoo_data.get(sym, {})
+        hist     = hist_data.get(sym)
+        td_quote = td_quotes.get(sym)
+
+        if hist:
+            stock = build_stock_from_stooq(sym, hist, td_quote)
+            if stock:
+                cache_set(f"{sym}:master", stock)
+                result[sym] = stock
+                print(f"  [MASTER] OK: {sym} ₹{stock['price']} {stock['recommendation']}")
+                continue
+
+        # Stooq failed - try Yahoo as last resort
+        print(f"  [MASTER] Stooq failed for {sym}, trying Yahoo...")
+        d = fetch_yahoo(sym, "30d")
         if d.get("status") == "ok":
             cache_set(f"{sym}:master", d)
             result[sym] = d
-            yahoo_ok.append(sym)
-        else:
-            yahoo_fail.append(sym)
 
-    print(f"  [MASTER] Yahoo: {len(yahoo_ok)} OK, {len(yahoo_fail)} failed")
-
-    # Step 3: Twelve Data /quote for Yahoo failures
-    if yahoo_fail and API_KEY:
-        print(f"  [MASTER] TD fallback for: {yahoo_fail}")
-        try:
-            td_syms = ",".join([f"{s}:NSE" for s in yahoo_fail])
-            url = f"{TWELVE_DATA_BASE}/quote?symbol={td_syms}&dp=2&apikey={API_KEY}"
-            req = Request(url, headers={"User-Agent":"MarketDashboard/1.0"})
-            with urlopen(req, timeout=15) as r:
-                raw = json.loads(r.read().decode())
-
-            if isinstance(raw, dict) and "close" in raw:
-                raw = {raw.get("symbol", yahoo_fail[0]+":NSE"): raw}
-
-            for td_sym, q in raw.items():
-                if not isinstance(q, dict) or q.get("status") == "error":
-                    continue
-                sym   = td_sym.replace(":NSE","").replace(":BSE","")
-                price = float(q.get("close") or 0)
-                if price <= 0:
-                    continue
-                prev    = float(q.get("previous_close") or price)
-                chg     = round(price - prev, 2)
-                chg_pct = round(float(q.get("percent_change") or 0), 2)
-                volume  = int(float(q.get("volume") or 0))
-                stock = {
-                    "symbol": sym,
-                    "name":   q.get("name", sym),
-                    "price":  round(price, 2),
-                    "change": chg, "changePct": chg_pct,
-                    "prevClose": round(prev, 2),
-                    "volume": volume,
-                    "high52w": float((q.get("fifty_two_week") or {}).get("high") or price*1.3),
-                    "low52w":  float((q.get("fifty_two_week") or {}).get("low")  or price*0.7),
-                    "history": [],
-                    "indicators": {
-                        "rsi": None, "sma20": None, "sma50": None,
-                        "macd": None, "macdHist": None,
-                        "support": None, "resistance": None,
-                        "volumeSignal": "high" if volume > 5000000 else "normal"
-                    },
-                    "recommendation": "HOLD",
-                    "sentiment":      "Neutral",
-                    "confidence":     50,
-                    "reasons":        [f"Live price from Twelve Data. RSI/MACD unavailable — load individual stock for full analysis."],
-                    "strategyPoints": [],
-                    "tradeLevels":    calc_trade_levels(price, None, None, "HOLD", None, None),
-                    "source":         "twelvedata",
-                    "status":         "ok"
-                }
-                cache_set(f"{sym}:master", stock)
-                result[sym] = stock
-                print(f"  [MASTER] TD OK: {sym} ₹{price}")
-        except Exception as e:
-            print(f"  [MASTER] TD fallback error: {e}")
-
-    print(f"  [MASTER] Final: {len(result)}/{len(syms)} stocks ready")
+    print(f"  [MASTER] Done: {len(result)}/{len(syms)}")
     return result
 
+
+def parse_stooq_csv(csv_text):
+    """Parse Stooq CSV response into list of OHLCV dicts."""
+    rows = []
+    lines = csv_text.strip().split('\n')
+    if len(lines) < 2:
+        return rows
+    headers = [h.strip().lower() for h in lines[0].split(',')]
+    for line in lines[1:]:
+        vals = line.strip().split(',')
+        if len(vals) < len(headers):
+            continue
+        row = dict(zip(headers, vals))
+        try:
+            rows.append({
+                'date':   row.get('date',''),
+                'open':   float(row.get('open', 0) or 0),
+                'high':   float(row.get('high', 0) or 0),
+                'low':    float(row.get('low', 0) or 0),
+                'close':  float(row.get('close', 0) or 0),
+                'volume': int(float(row.get('volume', 0) or 0)),
+            })
+        except:
+            pass
+    return rows
+
+
+def fetch_stooq_history(symbol, days=60):
+    """Fetch stock history from Stooq - free, no auth, no rate limits."""
+    clean = symbol.upper().replace('.NS','').replace('.BO','').strip()
+    cache_key = f"stooq:{clean}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    stooq_sym = clean.lower() + '.ns'
+    url = f"https://stooq.com/q/d/l/?s={stooq_sym}&i=d"
+    try:
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=10) as r:
+            text = r.read().decode('utf-8', errors='ignore')
+
+        rows = parse_stooq_csv(text)
+        if not rows:
+            return None
+
+        # Sort oldest first
+        rows.sort(key=lambda x: x['date'])
+        rows = rows[-days:]  # last N days
+
+        result = {
+            'symbol':  clean,
+            'rows':    rows,
+            'closes':  [r['close']  for r in rows],
+            'volumes': [r['volume'] for r in rows],
+            'highs':   [r['high']   for r in rows],
+            'lows':    [r['low']    for r in rows],
+        }
+        cache_set(cache_key, result)
+        print(f"  [STOOQ] {clean}: {len(rows)} days OK")
+        return result
+    except Exception as e:
+        print(f"  [STOOQ] {clean} failed: {e}")
+        return None
+
+
+def fetch_stooq_history_thread(symbol, result_dict, lock):
+    """Thread worker for parallel Stooq history fetch."""
+    data = fetch_stooq_history(symbol)
+    with lock:
+        result_dict[symbol] = data
+
+
+def build_stock_from_stooq(symbol, hist, td_quote=None):
+    """Build full stock dict from Stooq history + optional TD live price."""
+    if not hist or not hist.get('closes'):
+        return None
+
+    closes  = hist['closes']
+    volumes = hist['volumes']
+    highs   = hist['highs']
+    lows    = hist['lows']
+    rows    = hist['rows']
+
+    if not closes:
+        return None
+
+    # Price: use TD quote if available (more current), else latest Stooq close
+    if td_quote and td_quote.get('close'):
+        price = float(td_quote['close'])
+        prev  = float(td_quote.get('previous_close') or closes[-1])
+        chg   = round(price - prev, 2)
+        pct   = round(float(td_quote.get('percent_change') or 0), 2)
+        vol   = int(float(td_quote.get('volume') or volumes[-1] or 0))
+        name  = td_quote.get('name') or symbol
+    else:
+        price = closes[-1]
+        prev  = closes[-2] if len(closes) > 1 else price
+        chg   = round(price - prev, 2)
+        pct   = round((chg/prev*100) if prev else 0, 2)
+        vol   = volumes[-1] if volumes else 0
+        name  = symbol
+
+    if price <= 0:
+        return None
+
+    h52 = max(highs) if highs else price * 1.3
+    l52 = min(lows)  if lows  else price * 0.7
+
+    # Compute indicators
+    sma20  = calc_sma(closes, 20)
+    sma50  = calc_sma(closes, 50)
+    ema9   = calc_ema(closes, 9)
+    rsi    = calc_rsi(closes)
+    macd, sig_line, macd_hist = calc_macd(closes)
+    support, resistance = calc_support_resistance(closes)
+    vol_sig = calc_volume_signal(volumes[-10:] if len(volumes) >= 10 else volumes)
+
+    spread = ((price - support)/support*100) if support and price else None
+    confidence = calc_confidence(rsi, macd_hist, vol_sig, pct, spread)
+    rec, sentiment, reasons, strat_pts = get_recommendation(
+        rsi, macd_hist, pct, vol_sig, price,
+        support, resistance, sma20, sma50, ema9
+    )
+    trade_levels = calc_trade_levels(price, support, resistance, rec, rsi, sma20)
+
+    history = [{'date':r['date'],'close':round(r['close'],2),
+                'high':round(r['high'],2),'low':round(r['low'],2),
+                'volume':r['volume']} for r in rows[-30:]]
+
+    return {
+        "symbol": symbol, "name": name,
+        "price": round(price,2), "change": chg, "changePct": pct,
+        "prevClose": round(prev,2), "volume": vol,
+        "high52w": round(h52,2), "low52w": round(l52,2),
+        "history": history,
+        "indicators": {
+            "sma20":sma20,"sma50":sma50,"ema9":ema9,
+            "rsi":rsi,"macd":macd,"macdSignal":sig_line,
+            "macdHist":macd_hist,"support":support,
+            "resistance":resistance,"volumeSignal":vol_sig,
+        },
+        "recommendation":rec,"sentiment":sentiment,
+        "confidence":confidence,"reasons":reasons,
+        "strategyPoints":strat_pts,"tradeLevels":trade_levels,
+        "source":"stooq","status":"ok"
+    }
 
 
 # ── STOCKSENSE BATCH SCORER (pure Python, same rules as frontend JS) ──────────
