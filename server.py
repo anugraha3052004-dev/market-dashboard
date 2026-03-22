@@ -1549,7 +1549,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/health":
             self.send_json({"status":"ok","api_key_set":bool(API_KEY),
-                "stocks":"Yahoo Finance","commodities":"Twelve Data"}); return
+                "stocks":"Yahoo Finance","commodities":"Twelve Data","server_version":"v5.3-yahoo-direct","fetch_method":"yahoo_parallel"}); return
 
         # ── DEBUG ENDPOINT — tests every data source live ──────────
         if path == "/debug":
