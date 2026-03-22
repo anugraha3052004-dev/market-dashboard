@@ -1,0 +1,2564 @@
+const BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'http://localhost:8000'
+  : '';
+let SL = ['RELIANCE','TCS','REDINGTON'];
+let SD = {}, CD = {}, CCH = null, AF = 'all', CUR = 'gold';
+let cdv = 300, cdt = null, busy = false;
+let acT = null, addT = null;
+
+try { SL = JSON.parse(localStorage.getItem('imd_sl') || JSON.stringify(SL)); } catch{}
+
+async function api(path, ms=14000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(BASE + path, {
+      signal: ctrl.signal,
+      cache: 'no-store',
+      headers: { Accept: 'application/json' }
+    });
+    clearTimeout(t);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  } catch(e) {
+    clearTimeout(t);
+    throw e.name === 'AbortError' ? new Error('Timeout — server not responding') : e;
+  }
+}
+
+const bdg = r => `<span class="bdg ${r==='BUY'?'b-b':r==='AVOID'?'b-s':'b-h'}">${r}</span>`;
+const spl = s => `<span class="spl ${s==='Bullish'?'spl-b':s==='Bearish'?'spl-s':'spl-n'}">${s||'Neutral'}</span>`;
+const cbar = c => { const col=c>=70?'var(--buy)':c>=50?'var(--hold)':'var(--sell)'; return `<div class="cbar"><div class="ctr"><div class="cfi" style="width:${c}%;background:${col}"></div></div><span class="cvl">${c}%</span></div>`; };
+const vtag = v => `<span class="vtag ${v==='high'?'vh':v==='low'?'vl':'vn'}">${v==='high'?'🔥 High':v==='low'?'↓ Low':'Normal'}</span>`;
+const fv = v => v > 1e7 ? (v/1e7).toFixed(1)+'Cr' : v > 1e5 ? (v/1e5).toFixed(1)+'L' : (v||0).toLocaleString('en-IN');
+const arr = p => p > 0.5 ? '📈' : p < -0.5 ? '📉' : '➡️';
+const inr = n => n.toLocaleString('en-IN');
+const setSB = (cls, msg) => { const b=document.getElementById('sb'); b.className='sb '+cls; b.innerHTML=(cls==='sb-load'?'<span class="spin"></span>&nbsp;':'')+'<span>'+msg+'</span>'; };
+const setTS = () => { document.getElementById('ts').textContent = 'PRO · Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' IST'; };
+const saveL = () => { try { localStorage.setItem('imd_sl', JSON.stringify(SL)); } catch{} };
+const showErr = m => { const e=document.getElementById('err-msg'); e.style.display='block'; e.textContent=m; setTimeout(()=>e.style.display='none', 6000); };
+const setBtn = d => { const b=document.getElementById('rbtn'); b.disabled=d; b.textContent=d?'⏳':'⟳ Refresh'; };
+const thCol = {'s':'text-align:left;padding:10px 14px;font-size:9px;font-weight:700;letter-spacing:.8px;color:var(--t3);background:var(--bg2);border-bottom:1px solid var(--bdr);font-family:var(--fm);text-transform:uppercase'};
+
+function toggleTh() { document.getElementById('th-menu').classList.toggle('show'); }
+function setTh(t, l) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('th-lbl').textContent = l;
+  document.getElementById('th-menu').classList.remove('show');
+  try { localStorage.setItem('imd_th', t+':'+l); } catch{}
+}
+try { const s=localStorage.getItem('imd_th'); if(s){const[t,l]=s.split(':'); setTh(t,l);} } catch{}
+document.addEventListener('click', e => { if(!e.target.closest('.th-wrap')) document.getElementById('th-menu').classList.remove('show'); });
+
+function goPage(n) {
+  document.querySelectorAll('.pg').forEach(p => p.classList.remove('on'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  const pageId = n === 'market-news' ? 'pg-market-news' : 'pg-'+n;
+  const tabId  = n === 'market-news' ? 'tab-news' : 'tab-'+n;
+  document.getElementById(pageId)?.classList.add('on');
+  const t = document.getElementById(tabId);
+  if (t) { t.classList.add('on'); t.style.display=''; }
+  if (n === 'watchlist') renderWL();
+  if (n === 'commodities' && !Object.keys(CD).length) loadComm();
+  if (n === 'market-news') loadMarketNews();
+  if (n === 'ai' && !MH_LOADED) checkMarketHealth();
+  if (n === 'ai') { loadAlerts(); startAlertPolling(); }
+  if (n !== 'ai') stopAlertPolling();
+  closeDrops();
+}
+
+function acSrch(q) {
+  clearTimeout(addT);
+  const d = document.getElementById('add-drop');
+  if (!q) { d.classList.remove('show'); return; }
+  addT = setTimeout(async () => {
+    try {
+      const res = await api(`/search?q=${encodeURIComponent(q)}`, 4000);
+      const items = res.results || [];
+      if (!items.length) { d.classList.remove('show'); return; }
+      d.innerHTML = items.map(r => `<div class="drop-item" onclick="pickStock('${r.symbol}')"><div><div class="di-sym">${r.symbol}</div><div class="di-nm">${r.name}</div></div><span class="di-sec">${r.sector}</span></div>`).join('');
+      d.classList.add('show');
+    } catch{}
+  }, 220);
+}
+
+function pickStock(sym) {
+  document.getElementById('si').value = sym;
+  document.getElementById('add-drop').classList.remove('show');
+  addS(sym);
+}
+
+function filterSrch(q) {
+  applyF();
+  const d = document.getElementById('q-drop');
+  if (!q || q.length < 2) { d.classList.remove('show'); return; }
+  clearTimeout(acT);
+  acT = setTimeout(async () => {
+    try {
+      const res = await api(`/search?q=${encodeURIComponent(q)}`, 4000);
+      const items = (res.results || []).filter(r => !SL.includes(r.symbol)).slice(0,7);
+      if (!items.length) { d.classList.remove('show'); return; }
+      d.innerHTML = items.map(r => `<div class="drop-item" onclick="openDet('${r.symbol}');document.getElementById('q').value='';closeDrops();"><div><div class="di-sym">${r.symbol}</div><div class="di-nm">${r.name}</div></div><span class="di-sec">${r.sector}</span></div>`).join('');
+      d.classList.add('show');
+    } catch{}
+  }, 220);
+}
+
+function closeDrops() {
+  document.getElementById('q-drop')?.classList.remove('show');
+  document.getElementById('add-drop')?.classList.remove('show');
+}
+
+async function runScan() {
+  const btn = document.getElementById('scan-btn');
+  const out = document.getElementById('scan-out');
+  btn.disabled = true; btn.textContent = '⏳ Scanning…';
+  out.innerHTML = '<div class="lm"><span class="spin"></span> Running 5-signal scan across NSE stocks…</div>';
+  try {
+    const d = await api(`/scan?watchlist=${SL.join(',')}`, 60000);
+    const ops = d.opportunities || [];
+    const sigCls = { volume_spike:'vol', breakout:'brk', near_breakout:'brk', support_bounce:'bnc', momentum:'mom', momentum_mild:'mom', fno:'fno', oversold:'bnc' };
+    if (!ops.length) {
+      out.innerHTML = '<div style="font-size:11px;font-family:var(--fm);color:var(--t3)">No strong signals found right now. Market may be in consolidation. Try again later.</div>';
+    } else {
+      out.innerHTML = `<div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-bottom:10px">✅ Found ${ops.length} signals from ${d.scanned} stocks scanned outside watchlist</div>
+      <div class="opp-grid">${ops.map(s => {
+        const cl = s.changePct >= 0 ? 'up' : 'dn';
+        const tier = s.scanScore >= 75 ? 'hi' : 'md';
+        const tags = (s.scanSignals||[]).map(sg => `<span class="sig ${sigCls[sg.type]||''}">${sg.label}</span>`).join('');
+        const firstDetail = (s.scanSignals||[])[0]?.detail || '';
+        return `<div class="opp ${tier}" onclick="openDet('${s.symbol}')">
+          <div class="opp-sym">${s.symbol}</div>
+          <div class="opp-nm">${s.name||s.symbol}</div>
+          <div class="opp-pr">₹${s.price.toFixed(2)}</div>
+          <div class="opp-ch ${cl}">${s.changePct>=0?'+':''}${s.changePct}% today</div>
+          <div class="sig-tags">${tags}</div>
+          <div class="opp-ft">${bdg(s.recommendation||'HOLD')}<span style="color:#fbbf24;font-family:var(--fm);font-size:10px">⭐ ${s.scanScore}%</span></div>
+          <div class="opp-detail">${firstDetail}</div>
+        </div>`;
+      }).join('')}</div>`;
+    }
+  } catch(e) {
+    out.innerHTML = `<div class="lm" style="color:var(--sell)">Scan failed: ${e.message}</div>`;
+  }
+  btn.disabled = false; btn.textContent = '⟳ Scan Now';
+}
+
+function showSOTD() {
+  const stocks = Object.values(SD).filter(d => d?.status === 'ok');
+  if (!stocks.length) { document.getElementById('sotd-wrap').innerHTML = ''; return; }
+  let best = null, bs = -1;
+  stocks.forEach(s => {
+    let sc = s.confidence || 50;
+    if (s.recommendation === 'BUY') sc += 20;
+    if (s.recommendation === 'AVOID') sc -= 20;
+    if (s.indicators?.volumeSignal === 'high') sc += 10;
+    if (s.changePct > 0) sc += 5;
+    if (sc > bs) { bs = sc; best = s; }
+  });
+  if (!best) return;
+  const cl = best.changePct >= 0 ? 'up' : 'dn';
+  const exp = best.recommendation === 'BUY' ? '+2–4%' : best.recommendation === 'AVOID' ? '-2–4%' : 'Flat ±1%';
+  const rc = best.recommendation === 'BUY'
+    ? 'background:var(--buy-bg);color:var(--buy);border:1px solid var(--buy-bd)'
+    : best.recommendation === 'AVOID'
+    ? 'background:var(--sell-bg);color:var(--sell);border:1px solid var(--sell-bd)'
+    : 'background:var(--hold-bg);color:var(--hold);border:1px solid var(--hold-bd)';
+  document.getElementById('sotd-wrap').innerHTML = `
+  <div class="sotd">
+    <div style="position:relative;z-index:1">
+      <div class="sotd-badge">★ STOCK OF THE DAY · ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>
+      <div class="sotd-name">${best.name||best.symbol}</div>
+      <div class="sotd-price">₹${best.price.toFixed(2)} &nbsp;<span class="${cl}">${best.changePct>=0?'+':''}${best.changePct}%</span></div>
+      <div style="margin-top:11px">${(best.reasons||[]).map(r=>`<div class="sotd-reason">${r}</div>`).join('')}</div>
+    </div>
+    <div style="position:relative;z-index:1">
+      <div class="sotd-conf">${best.confidence}%</div>
+      <div style="font-size:9px;font-family:var(--fm);color:var(--t3);letter-spacing:1px;margin-top:2px">AI CONFIDENCE</div>
+      <div style="display:inline-block;padding:6px 20px;border-radius:var(--r8);font-size:13px;font-weight:700;font-family:var(--fm);margin-top:8px;${rc}">${best.recommendation}</div>
+      <div style="font-size:10px;color:var(--t3);font-family:var(--fm);margin-top:6px">Est. 2–3 days: ${exp}</div>
+      <button class="btn btn-pri" style="margin-top:10px;font-size:10px" onclick="openDet('${best.symbol}')">Full Analysis →</button>
+    </div>
+  </div>`;
+}
+
+function renderTbl() {
+  const tb = document.getElementById('stb');
+  if (!SL.length) { tb.innerHTML = '<tr><td colspan="9" class="lm">No stocks. Add some above.</td></tr>'; return; }
+  tb.innerHTML = SL.map(sym => {
+    const d = SD[sym];
+    if (d === undefined) return `<tr data-s="${sym}" data-rec="" data-sent="" data-vol="">
+      <td><div class="sname">${sym}</div><div class="stk">NSE · Loading…</div></td>
+      <td colspan="7"><div style="display:flex;align-items:center;gap:8px;font-size:11px;font-family:var(--fm);color:var(--t3)"><span class="spin"></span> Fetching…</div></td>
+      <td><button style="font-size:10px;color:var(--t3);background:none;border:none;cursor:pointer" onclick="event.stopPropagation();rmS('${sym}')">✕</button></td>
+    </tr>`;
+    if (!d || d.status === 'error') return `<tr data-s="${sym}" data-rec="" data-sent="" data-vol=""><td colspan="8"><span style="font-size:11px;color:var(--sell)">${sym} — failed to load</span></td><td><button style="font-size:10px;color:var(--t3);background:none;border:none;cursor:pointer" onclick="rmS('${sym}')">✕</button></td></tr>`;
+    return rowHTML(sym, d);
+  }).join('');
+  applyF();
+}
+
+function rowHTML(sym, d) {
+  const cl = d.changePct >= 0 ? 'up' : 'dn';
+  const ind = d.indicators||{}, vs = ind.volumeSignal||'normal';
+  return `<tr data-s="${sym}" data-rec="${d.recommendation}" data-sent="${d.sentiment}" data-vol="${vs}" onclick="openDet('${sym}')">
+    <td><div class="sname">${d.name||sym}</div><div class="stk">${sym} · NSE</div></td>
+    <td class="pf">₹${d.price.toFixed(2)}</td>
+    <td class="cf ${cl}">${d.changePct>=0?'+':''}${d.changePct}%<br><small style="font-size:9px">${d.change>=0?'+':''}₹${Math.abs(d.change).toFixed(2)}</small></td>
+    <td>${spl(d.sentiment)}</td>
+    <td>${bdg(d.recommendation||'HOLD')}</td>
+    <td>${vtag(vs)}<br><span style="font-size:9px;color:var(--t3);font-family:var(--fm)">${fv(d.volume)}</span></td>
+    <td style="font-size:17px">${arr(d.changePct)}</td>
+    <td>${cbar(d.confidence||50)}</td>
+    <td>
+      <button class="btn btn-pri" style="font-size:9px;padding:4px 9px" onclick="event.stopPropagation();openDet('${sym}')">Analyse</button>
+      <button style="font-size:9px;color:var(--t3);background:none;border:none;cursor:pointer;display:block;margin-top:3px" onclick="event.stopPropagation();rmS('${sym}')">✕ Remove</button>
+    </td>
+  </tr>`;
+}
+
+function updateRow(sym, d) {
+  const row = document.querySelector(`#stb tr[data-s="${sym}"]`);
+  if (!row) return;
+  if (!d || d.status === 'error') {
+    row.innerHTML = `<td colspan="8"><span style="font-size:11px;color:var(--sell)">${sym} — failed</span></td><td><button style="font-size:10px;color:var(--t3);background:none;border:none;cursor:pointer" onclick="rmS('${sym}')">✕</button></td>`;
+    row.setAttribute('data-rec',''); row.setAttribute('data-sent',''); row.setAttribute('data-vol','');
+    return;
+  }
+  const ind = d.indicators||{}, vs = ind.volumeSignal||'normal';
+  row.setAttribute('data-rec', d.recommendation);
+  row.setAttribute('data-sent', d.sentiment||'');
+  row.setAttribute('data-vol', vs);
+  row.innerHTML = rowHTML(sym, d).replace(/^<tr[^>]*>/, '').replace(/<\/tr>$/, '');
+  applyF();
+}
+
+async function loadStocks() {
+  if (!SL.length) { renderTbl(); renderWL(); return; }
+  renderTbl(); // show skeletons
+
+  try {
+    // Use /stocks BULK endpoint — 1 call for all stocks (Twelve Data + Yahoo hybrid)
+    setSB('sb-load', `Loading ${SL.length} stocks in bulk…`);
+    const bulkData = await api('/stocks?symbols=' + SL.join(','), 30000);
+
+    // Process bulk response
+    let loaded = 0;
+    SL.forEach(sym => {
+      const d = bulkData[sym];
+      if (d?.status === 'ok') { SD[sym] = d; loaded++; }
+      else { SD[sym] = d || {symbol:sym, status:'error'}; }
+      updateRow(sym, SD[sym]);
+    });
+
+    setSB('sb-load', `✅ ${loaded}/${SL.length} stocks loaded`);
+    showSOTD();
+    renderWL();
+
+    // If some failed, retry individually in background
+    const failed = SL.filter(s => SD[s]?.status !== 'ok');
+    if (failed.length > 0) {
+      setSB('sb-load', `${loaded}/${SL.length} loaded · Retrying ${failed.length} failed…`);
+      await Promise.allSettled(failed.map(async sym => {
+        try {
+          const d = await api(`/stock?symbol=${sym}&range=30d`, 15000);
+          if (d?.status === 'ok') { SD[sym] = d; loaded++; }
+          else { SD[sym] = d || {symbol:sym, status:'error'}; }
+          updateRow(sym, SD[sym]);
+        } catch { SD[sym] = {symbol:sym, status:'error'}; updateRow(sym, SD[sym]); }
+      }));
+      showSOTD();
+      renderWL();
+    }
+
+  } catch(e) {
+    // Bulk failed — fall back to individual fetches
+    setSB('sb-load', `Bulk load failed, trying individually…`);
+    let done = 0;
+    await Promise.allSettled(SL.map(async sym => {
+      try {
+        const d = await api(`/stock?symbol=${sym}&range=30d`, 15000);
+        if (d?.status === 'ok') { SD[sym] = d; }
+        else { SD[sym] = d || {symbol:sym, status:'error'}; }
+      } catch { SD[sym] = {symbol:sym, status:'error'}; }
+      done++;
+      setSB('sb-load', `Loading stocks… ${done}/${SL.length}`);
+      updateRow(sym, SD[sym]);
+      if (done === 1) showSOTD();
+    }));
+    showSOTD();
+    renderWL();
+  }
+}
+
+function applyF() {
+  const q = document.getElementById('q').value.toLowerCase();
+  document.querySelectorAll('#stb tr[data-s]').forEach(r => {
+    const rec=r.dataset.rec||'', sent=r.dataset.sent||'', vol=r.dataset.vol||'', sym=r.dataset.s||'';
+    let show = true;
+    if (AF==='buy'&&rec!=='BUY') show=false;
+    if (AF==='hold'&&rec!=='HOLD') show=false;
+    if (AF==='avoid'&&rec!=='AVOID') show=false;
+    if (AF==='bull'&&sent!=='Bullish') show=false;
+    if (AF==='bear'&&sent!=='Bearish') show=false;
+    if (AF==='hvol'&&vol!=='high') show=false;
+    if (q&&!sym.toLowerCase().includes(q)&&!r.textContent.toLowerCase().includes(q)) show=false;
+    r.style.display = show ? '' : 'none';
+  });
+}
+function setF(f, btn) { AF=f; document.querySelectorAll('.fb').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); applyF(); }
+
+function renderWL() {
+  const g = document.getElementById('wg');
+  if (!SL.length) { g.innerHTML='<div class="lm">No stocks yet.</div>'; return; }
+  g.innerHTML = SL.map(sym => {
+    const d = SD[sym];
+    if (!d||d.status==='error') return `<div class="wc"><div style="font-weight:700;font-size:13px">${sym}</div><div style="font-size:11px;color:var(--sell);margin-top:8px">Not loaded</div></div>`;
+    const cl = d.changePct >= 0 ? 'up' : 'dn';
+    return `<div class="wc" onclick="openDet('${sym}')">
+      <div style="font-weight:700;font-size:13px;color:var(--t1)">${d.name||sym}</div>
+      <div style="font-size:10px;font-family:var(--fm);color:var(--t3)">${sym} · NSE</div>
+      <div style="font-size:19px;font-weight:800;font-family:var(--fm);margin:5px 0 2px;color:var(--t1)">₹${d.price.toFixed(2)}</div>
+      <div class="cf ${cl}" style="font-size:11px">${d.changePct>=0?'+':''}${d.changePct}%</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--bdr)">${bdg(d.recommendation||'HOLD')}<span style="font-size:10px;font-family:var(--fm);color:var(--t3)">${d.confidence||50}%</span></div>
+    </div>`;
+  }).join('');
+}
+
+async function addS(sym) {
+  const v = (sym || document.getElementById('si').value).trim().toUpperCase().replace(/\.NS|\.BO/gi,'');
+  if (!v) return;
+  if (SL.includes(v)) { showErr(v+' already tracked.'); return; }
+  if (SL.length >= 15) { showErr('Max 15 stocks.'); return; }
+  SL.push(v); saveL();
+  document.getElementById('si').value = '';
+  closeDrops();
+  SD[v] = undefined;
+  renderTbl();
+  try {
+    const d = await api(`/stock?symbol=${v}&range=30d`);
+    if (!d || d.status === 'error') { showErr('"'+v+'" not found on NSE. Check ticker.'); SL=SL.filter(x=>x!==v); saveL(); delete SD[v]; renderTbl(); return; }
+    SD[v] = d; updateRow(v, d); showSOTD();
+  } catch(e) { showErr('Failed: '+e.message); SL=SL.filter(x=>x!==v); saveL(); delete SD[v]; renderTbl(); }
+}
+function rmS(sym) { SL=SL.filter(x=>x!==sym); delete SD[sym]; saveL(); renderTbl(); renderWL(); }
+function qa(t) { document.getElementById('si').value=t; closeDrops(); addS(t); }
+
+async function openDet(sym) {
+  document.getElementById('tab-detail').style.display = '';
+  goPage('detail');
+  const div = document.getElementById('det');
+  div.innerHTML = `<div class="lm"><span class="spin"></span> Loading analysis for ${sym}…</div>`;
+  try {
+    const [stock, nr] = await Promise.all([
+      api(`/stock?symbol=${sym}&range=60d`),
+      api(`/news?symbol=${sym}`)
+    ]);
+    renderDet(stock, nr.news||[]);
+  } catch(e) {
+    div.innerHTML = `<div class="lm" style="color:var(--sell)">Failed: ${e.message}</div>`;
+  }
+}
+
+function renderDet(s, news) {
+  const ind = s.indicators||{}, tl = s.tradeLevels||{}, sp = s.strategyPoints||[];
+  const cl = s.changePct >= 0 ? 'up' : 'dn';
+  const h7 = (s.history||[]).slice(-7), h30 = (s.history||[]).slice(-30);
+  const pN = news.filter(n=>n.sentiment==='positive'), nN = news.filter(n=>n.sentiment==='negative'), uN = news.filter(n=>n.sentiment==='neutral');
+
+  let srb = '';
+  if (ind.support && ind.resistance && s.price) {
+    const rng = ind.resistance - ind.support;
+    const pos = rng > 0 ? ((s.price-ind.support)/rng*80+10) : 50;
+    srb = `<div class="srbar">
+      <div class="srf" style="left:5%;width:85%"></div>
+      <div class="srd sr-s" style="left:5%"></div>
+      <div class="srd sr-c" style="left:${Math.min(Math.max(pos,6),91)}%"></div>
+      <div class="srd sr-r" style="left:90%"></div>
+    </div>
+    <div class="srl">
+      <span style="color:var(--buy);font-family:var(--fm)">▲ ₹${inr(ind.support)}</span>
+      <span style="color:#60a5fa;font-family:var(--fm)">● ₹${s.price}</span>
+      <span style="color:var(--sell);font-family:var(--fm)">▼ ₹${inr(ind.resistance)}</span>
+    </div>`;
+  }
+
+  const recGrad = s.recommendation==='BUY'
+    ? 'linear-gradient(135deg,rgba(0,230,118,.1),rgba(0,230,118,.03))'
+    : s.recommendation==='AVOID'
+    ? 'linear-gradient(135deg,rgba(255,82,82,.1),rgba(255,82,82,.03))'
+    : 'linear-gradient(135deg,rgba(255,171,64,.1),rgba(255,171,64,.03))';
+  const recBdr = s.recommendation==='BUY' ? 'var(--buy-bd)' : s.recommendation==='AVOID' ? 'var(--sell-bd)' : 'var(--hold-bd)';
+  const recCol = s.recommendation==='BUY' ? 'var(--buy)' : s.recommendation==='AVOID' ? 'var(--sell)' : 'var(--hold)';
+
+  const newsCol = pN.length>nN.length ? 'var(--buy)' : nN.length>pN.length ? 'var(--sell)' : 'var(--hold)';
+  const newsLbl = pN.length>nN.length ? '📈 Positive Sentiment' : nN.length>pN.length ? '📉 Negative Sentiment' : '➡️ Mixed';
+
+  document.getElementById('det').innerHTML = `
+  <div class="d-hdr">
+    <div>
+      <div class="d-name">${s.name||s.symbol}</div>
+      <div class="d-sub">${s.symbol} · NSE · ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>
+      <div style="margin-top:6px;font-size:11px;color:var(--t3);font-family:var(--fm)">52W: ₹${(s.low52w||0).toFixed(0)} ─ ₹${(s.high52w||0).toFixed(0)} &nbsp;|&nbsp; Prev Close: ₹${(s.prevClose||0).toFixed(2)}</div>
+    </div>
+    <div style="text-align:right">
+      <div class="d-price">₹${s.price.toFixed(2)}</div>
+      <div class="d-chg ${cl}">${s.change>=0?'+':''}₹${Math.abs(s.change).toFixed(2)} (${s.changePct>=0?'+':''}${s.changePct}%)</div>
+      <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">${spl(s.sentiment)} ${bdg(s.recommendation||'HOLD')}</div>
+      <div style="font-size:11px;color:var(--t3);font-family:var(--fm);margin-top:5px">AI: <b style="color:#fbbf24">${s.confidence||50}%</b> &nbsp;|&nbsp; Vol: ${fv(s.volume)}</div>
+    </div>
+  </div>
+
+  <div class="strat">
+    <div class="strat-hdr">
+      <div>
+        <div style="font-size:9px;font-family:var(--fm);letter-spacing:2px;color:var(--t3);text-transform:uppercase;margin-bottom:8px">AI Trading Strategy · ${s.symbol}</div>
+        <div style="font-size:24px;font-weight:900;padding:7px 22px;border-radius:var(--r8);display:inline-block;background:${recGrad};border:1px solid ${recBdr};color:${recCol}">${s.recommendation||'HOLD'}</div>
+        <div style="font-size:12px;color:var(--t2);margin-top:10px;max-width:460px;line-height:1.7">${tl.strategy||''}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:46px;font-weight:900;background:linear-gradient(135deg,#fbbf24,#f59e0b);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1">${s.confidence||50}%</div>
+        <div style="font-size:9px;font-family:var(--fm);color:var(--t3);letter-spacing:1px;margin-top:2px">CONFIDENCE</div>
+        <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:5px">⏱ ${tl.days_est||'2–3 days'}</div>
+      </div>
+    </div>
+
+    <div class="pt-grid">
+      <div class="pt" style="background:rgba(0,230,118,.06);border-color:rgba(0,230,118,.2)">
+        <div class="pt-l" style="color:var(--buy)">Entry / Buy At</div>
+        <div class="pt-v" style="color:var(--buy)">₹${inr(tl.entry||s.price)}</div>
+        <div class="pt-s" style="color:var(--buy)">Current price</div>
+      </div>
+      <div class="pt" style="background:rgba(52,211,153,.05);border-color:rgba(52,211,153,.2)">
+        <div class="pt-l" style="color:#34d399">Target 1</div>
+        <div class="pt-v" style="color:#34d399">₹${inr(tl.target1||0)}</div>
+        <div class="pt-s" style="color:#34d399">+${tl.reward_pct||0}% profit</div>
+      </div>
+      <div class="pt" style="background:rgba(110,231,183,.03);border-color:rgba(110,231,183,.15)">
+        <div class="pt-l" style="color:#6ee7b7">Target 2</div>
+        <div class="pt-v" style="color:#6ee7b7">₹${inr(tl.target2||0)}</div>
+        <div class="pt-s" style="color:var(--t3)">Stretch</div>
+      </div>
+      <div class="pt" style="background:rgba(255,82,82,.06);border-color:rgba(255,82,82,.2)">
+        <div class="pt-l" style="color:var(--sell)">Stop Loss</div>
+        <div class="pt-v" style="color:var(--sell)">₹${inr(tl.stop_loss||0)}</div>
+        <div class="pt-s" style="color:var(--sell)">-${tl.risk_pct||0}% risk</div>
+      </div>
+      <div class="pt" style="background:rgba(255,171,64,.05);border-color:rgba(255,171,64,.2)">
+        <div class="pt-l" style="color:var(--hold)">Hold Above</div>
+        <div class="pt-v" style="color:var(--hold)">₹${inr(tl.hold_above||0)}</div>
+        <div class="pt-s" style="color:var(--t3)">Exit if breaks</div>
+      </div>
+      <div class="pt" style="background:rgba(129,140,248,.05);border-color:rgba(129,140,248,.2)">
+        <div class="pt-l" style="color:#818cf8">Risk : Reward</div>
+        <div class="pt-v" style="color:#818cf8">1 : ${tl.rr_ratio||0}</div>
+        <div class="pt-s" style="color:${(tl.rr_ratio||0)>=2?'var(--buy)':'var(--t3)'}">${(tl.rr_ratio||0)>=2?'✅ Good setup':'Watch'}</div>
+      </div>
+    </div>
+
+    <div style="background:rgba(255,255,255,.02);border-radius:var(--r12);padding:14px;border:1px solid var(--bdr)">
+      <div style="font-size:9px;font-family:var(--fm);letter-spacing:1.5px;color:var(--t3);text-transform:uppercase;margin-bottom:11px">Why ${s.recommendation||'HOLD'} — Expert Reasoning</div>
+      <div class="reason-g">
+        ${(s.reasons||[]).map(r => `<div class="reason"><div class="r-ico">${s.recommendation==='BUY'?'✅':s.recommendation==='AVOID'?'❌':'⚡'}</div><div class="r-txt">${r}</div></div>`).join('')}
+      </div>
+      ${sp.length ? `<div style="margin-top:12px;border-top:1px solid var(--bdr);padding-top:12px">
+        <div style="font-size:9px;font-family:var(--fm);letter-spacing:1.5px;color:var(--t3);text-transform:uppercase;margin-bottom:9px">Detailed Analysis</div>
+        ${sp.map(p => `<div class="sp-pt">${p}</div>`).join('')}
+      </div>` : ''}
+    </div>
+  </div>
+
+  <div class="dgrid">
+    <div class="card"><div class="ct">7-Day Trend</div><div style="position:relative;height:150px"><canvas id="c7"></canvas></div></div>
+    <div class="card"><div class="ct">30-Day Trend</div><div style="position:relative;height:150px"><canvas id="c30"></canvas></div></div>
+  </div>
+
+  <div class="dgrid">
+    <div class="card">
+      <div class="ct">Technical Indicators</div>
+      <div class="ig">
+        <div class="ib"><div class="il">RSI (14)</div><div class="iv" style="color:${(ind.rsi||50)<40?'var(--buy)':(ind.rsi||50)>65?'var(--sell)':'var(--t1)'}">${ind.rsi||'—'}</div><div class="is">${(ind.rsi||50)<35?'🟢 Deeply Oversold':(ind.rsi||50)<45?'🟢 Oversold':(ind.rsi||50)>75?'🔴 Overbought':(ind.rsi||50)>65?'🟡 High':'⚪ Neutral'}</div></div>
+        <div class="ib"><div class="il">MACD</div><div class="iv" style="color:${(ind.macdHist||0)>0?'var(--buy)':'var(--sell)'}">${ind.macd||'—'}</div><div class="is">${(ind.macdHist||0)>0?'🟢 Bullish':'🔴 Bearish'}</div></div>
+        <div class="ib"><div class="il">SMA 20</div><div class="iv fv2" style="color:var(--t1)">₹${ind.sma20||'—'}</div><div class="is">${ind.sma20?(s.price>ind.sma20?'🟢 Above':'🔴 Below'):'—'}</div></div>
+        <div class="ib"><div class="il">SMA 50</div><div class="iv fv2" style="color:var(--t1)">₹${ind.sma50||'—'}</div><div class="is">${ind.sma50?(s.price>ind.sma50?'🟢 Uptrend':'🔴 Downtrend'):'—'}</div></div>
+        <div class="ib"><div class="il">EMA 9</div><div class="iv fv2" style="color:var(--t1)">₹${ind.ema9||'—'}</div><div class="is">${ind.ema9?(s.price>ind.ema9?'Above EMA9':'Below EMA9'):'Short-term'}</div></div>
+        <div class="ib"><div class="il">Volume</div><div class="iv" style="color:${ind.volumeSignal==='high'?'var(--hold)':ind.volumeSignal==='low'?'var(--sell)':'var(--t1)'}">${fv(s.volume)}</div><div class="is">${ind.volumeSignal==='high'?'🔥 Spike':'Normal'}</div></div>
+      </div>
+      <div style="margin-top:13px"><div class="ct" style="margin-bottom:7px">Support & Resistance</div>${srb||'<div style="font-size:11px;color:var(--t3);padding:5px 0">Need 20+ days data</div>'}</div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:11px">
+          <div class="ct" style="margin-bottom:0">Latest News</div>
+          <span style="font-size:10px;font-weight:600;color:${newsCol}">${newsLbl}</span>
+        </div>
+        ${!news.length
+          ? '<div style="font-size:12px;color:var(--t3);text-align:center;padding:8px">No recent news found for this stock</div>'
+          : `<div class="ss" style="margin-bottom:12px"><span class="ss-p">✅ ${pN.length} Positive</span><span class="ss-n">❌ ${nN.length} Negative</span><span class="ss-u">➡️ ${uN.length} Neutral</span></div>
+          ${news.slice(0,8).map(n => {
+            const impCol = n.impact==='HIGH'?'var(--sell)':n.impact==='MEDIUM'?'var(--hold)':'var(--t3)';
+            const impBg  = n.impact==='HIGH'?'var(--sell-bg)':n.impact==='MEDIUM'?'var(--hold-bg)':'var(--bg3)';
+            return `<div class="ni">
+              <div class="nd ${n.sentiment==='positive'?'nd-p':n.sentiment==='negative'?'nd-n':'nd-u'}"></div>
+              <div style="flex:1">
+                <div class="nt"><a href="${n.link}" target="_blank" rel="noopener">${n.title}</a></div>
+                ${n.desc?`<div style="font-size:10px;color:var(--t3);margin-top:2px;line-height:1.4">${n.desc.slice(0,120)}…</div>`:''}
+                <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">
+                  <span class="ndt">${n.date.split(' ').slice(0,4).join(' ')}</span>
+                  <span style="font-size:9px;padding:1px 5px;border-radius:4px;font-family:var(--fm);${n.sentiment==='positive'?'background:var(--buy-bg);color:var(--buy)':n.sentiment==='negative'?'background:var(--sell-bg);color:var(--sell)':'background:var(--bg3);color:var(--t3)'}">${n.sentiment}</span>
+                  <span style="font-size:9px;padding:1px 5px;border-radius:4px;font-family:var(--fm);background:${impBg};color:${impCol};border:1px solid ${impCol}22">⚡ ${n.impact||'LOW'} IMPACT</span>
+                </div>
+              </div>
+            </div>`;
+          }).join('')}
+          <div style="margin-top:12px;padding:10px 12px;background:var(--bg2);border-radius:var(--r8);border:1px solid var(--bdr);font-size:11px;color:var(--t2);line-height:1.7">
+            <b style="color:${newsCol}">News Impact on Trade:</b> ${pN.length>nN.length
+              ?`${pN.length} positive vs ${nN.length} negative headlines. News flow supports ${s.recommendation} call.`
+              :nN.length>pN.length
+              ?`${nN.length} negative vs ${pN.length} positive. Adverse news flow — tighten stop-loss.`
+              :'Mixed news sentiment. Focus on technical levels rather than news alone.'}
+          </div>`
+        }
+      </div>
+
+      <div class="card-sm">
+        <div style="font-size:9px;font-family:var(--fm);letter-spacing:1.5px;color:var(--t3);text-transform:uppercase;margin-bottom:11px">Trade Summary</div>
+        ${[
+          ['Recommendation', bdg(s.recommendation||'HOLD')],
+          ['Entry Price', `<span style="color:var(--buy);font-family:var(--fm)">₹${inr(tl.entry||s.price)}</span>`],
+          ['Target 1', `<span style="color:#34d399;font-family:var(--fm)">₹${inr(tl.target1||0)} (+${tl.reward_pct||0}%)</span>`],
+          ['Target 2', `<span style="color:#6ee7b7;font-family:var(--fm)">₹${inr(tl.target2||0)}</span>`],
+          ['Stop Loss', `<span style="color:var(--sell);font-family:var(--fm)">₹${inr(tl.stop_loss||0)} (-${tl.risk_pct||0}%)</span>`],
+          ['Hold Above', `<span style="color:var(--hold);font-family:var(--fm)">₹${inr(tl.hold_above||0)}</span>`],
+          ['Duration', `<span style="color:var(--t1);font-family:var(--fm)">${tl.days_est||'2–3 days'}</span>`],
+          ['Risk : Reward', `<span style="color:#818cf8;font-family:var(--fm)">1:${tl.rr_ratio||0} ${(tl.rr_ratio||0)>=2?'✅':''}</span>`],
+          ['AI Confidence', `<span style="color:#fbbf24;font-family:var(--fm)">${s.confidence||50}%</span>`],
+        ].map(([l,v]) => `<div class="summary-t"><span style="color:var(--t3)">${l}</span>${v}</div>`).join('')}
+        <div style="margin-top:9px;font-size:9px;color:var(--t3);font-family:var(--fm);line-height:1.5">⚠️ Not SEBI-registered advice. Use proper position sizing.</div>
+      </div>
+    </div>
+  </div>`;
+
+  setTimeout(() => { mkChart('c7',h7,'#3b82f6'); mkChart('c30',h30,'#8b5cf6'); }, 80);
+}
+
+function mkChart(id, hist, col) {
+  const ctx = document.getElementById(id); if (!ctx) return;
+  new Chart(ctx, {
+    type: 'line',
+    data: { labels: hist.map(h=>h.date?.slice(5)||''), datasets: [{ data: hist.map(h=>h.close), borderColor: col, backgroundColor: col+'14', borderWidth: 2, pointRadius: 3, pointBackgroundColor: col, fill: true, tension: 0.4 }] },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins: { legend:{display:false}, tooltip:{backgroundColor:'rgba(10,20,40,.95)',borderColor:col,borderWidth:1,callbacks:{label:v=>`₹${v.raw}`}} },
+      scales: {
+        x: { ticks:{font:{size:9},color:'#475569',maxTicksLimit:6}, grid:{color:'rgba(59,130,246,.05)'} },
+        y: { ticks:{font:{size:9},color:'#475569',callback:v=>'₹'+Number(v).toLocaleString('en-IN',{maximumFractionDigits:0})}, grid:{color:'rgba(59,130,246,.05)'} }
+      }
+    }
+  });
+}
+
+async function loadComm() {
+  Promise.all([loadCommPrices(), loadFutures(), loadETFs()]);
+}
+
+async function loadCommPrices() {
+  try {
+    const data = await api('/commodities');
+    CD = data;
+    const usdInr = parseFloat(data.usdInr?.close || data.usdInr?.price || 84);
+    const COMMS = [
+      { id:'gold',   name:'Gold',   sym:'XAU/USD', css:'gold', iu:'oz', mu:'10g', col:'#f59e0b',
+        mcx: p => (p/31.1035)*usdInr*10*1.1575,
+        ai: ['Gold above $2300 = strong safe-haven demand.','Every ₹1 move in USD/INR changes MCX gold by ~₹320/10g.','MCX includes 10.75% customs + 3% GST = ~14% premium.','Best trade when RSI < 45 + volume spike confirmed.']
+      },
+      { id:'silver', name:'Silver', sym:'XAG/USD', css:'silv', iu:'oz', mu:'kg',  col:'#94a3b8',
+        mcx: p => (p/31.1035)*usdInr*1000*1.1375,
+        ai: ['Silver is 3× more volatile than gold.','EV and solar demand is key bullish driver for silver.','Gold-Silver ratio >80 = silver cheap relative to gold.','High MCX liquidity ideal for short-term F&O trades.']
+      },
+      { id:'copper', name:'Copper', sym:'XCU/USD', css:'copp', iu:'lb', mu:'kg',  col:'#c87941',
+        mcx: p => (p/0.453592)*usdInr*1.05,
+        ai: ['MCX Copper lot = 2500 kg. Margin ~₹25,000–₹35,000 per lot.','China construction & EV demand drives 50%+ of global copper demand.','LME copper price in $/tonne × USD/INR ÷ 1000 = approx MCX rate/kg.','MCX copper: near-month usually trades ₹2–₹5 premium over spot.','Watch US ISM Manufacturing PMI — copper reacts sharply to it.']
+      }
+    ];
+    let ch = '', arRows = '', sumPts = [];
+    const thS = 'text-align:left;padding:10px 14px;font-size:9px;font-weight:700;letter-spacing:.8px;color:var(--t3);background:var(--bg2);border-bottom:1px solid var(--bdr);font-family:var(--fm);text-transform:uppercase';
+    document.getElementById('arb-hdr').innerHTML = ['Asset','Intl (USD)','Change','MCX Est.','Spread','Arb Signal','2-3 Day Call'].map(h=>`<th style="${thS}">${h}</th>`).join('');
+
+    COMMS.forEach(c => {
+      const d = data[c.id]; if (!d || d.error) return;
+      const intl = parseFloat(d.close||0), prev = parseFloat(d.previous_close||intl);
+      const chg = parseFloat(d.change||(intl-prev)), pct = parseFloat(d.percent_change||(prev?(chg/prev*100):0));
+      const mcx = c.mcx(intl), fair = mcx/1.135, spread = fair ? ((mcx-fair)/fair*100) : 0;
+      const cl = chg >= 0 ? 'up' : 'dn';
+      const tr = pct>0.3?'↑ Uptrend':pct<-0.3?'↓ Downtrend':'→ Sideways';
+      let rec, rsn;
+      if (pct>0.8) { rec='BUY'; rsn=`Intl up ${pct.toFixed(1)}% — MCX likely to follow.`; }
+      else if (pct<-0.8) { rec='AVOID'; rsn=`Down ${Math.abs(pct).toFixed(1)}% — wait for support.`; }
+      else if (spread>8) { rec='BUY'; rsn=`MCX premium ${spread.toFixed(1)}% — arb opportunity.`; }
+      else { rec='HOLD'; rsn='Sideways. Watch for breakout.'; }
+
+      const isCopper = c.id === 'copper';
+      const copperExtra = isCopper ? `
+        <div class="srow" style="margin-top:8px"><span style="color:var(--t3)">MCX Lot Size</span><span style="color:var(--t1);font-family:var(--fm)">2,500 kg</span></div>
+        <div class="srow"><span style="color:var(--t3)">MCX ₹/kg</span><span style="color:var(--buy);font-family:var(--fm)">₹${Math.round(mcx).toLocaleString('en-IN')}</span></div>
+      ` : '';
+
+      ch += `<div class="cc ${c.css}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:13px">
+          <div><div style="font-size:16px;font-weight:800;color:var(--t1)">${c.name}</div><div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:2px">${tr}</div></div>
+          <span style="font-size:9px;font-family:var(--fm);padding:2px 8px;border-radius:5px;border:1px solid var(--bdr);color:var(--t2)">${c.sym}</span>
+        </div>
+        <div class="pg2">
+          <div class="pb"><div class="pl">International</div><div class="pv">$${intl.toFixed(2)}</div><div class="pu">USD / ${c.iu}</div><div class="pc ${cl}">${chg>=0?'+':''}${chg.toFixed(2)} (${pct>=0?'+':''}${pct.toFixed(2)}%)</div></div>
+          <div class="pb"><div class="pl">MCX Est.</div><div class="pv">₹${Math.round(mcx).toLocaleString('en-IN')}</div><div class="pu">per ${c.mu}</div><div class="pc" style="color:var(--t3)">${isCopper?'Incl. ~5% import':'Incl. ~14% duty'}</div></div>
+        </div>
+        ${copperExtra}
+        <div class="srow"><span style="color:var(--t3)">MCX spread vs fair value</span><span class="${spread>=0?'up':'dn'}">${spread>=0?'+':''}${spread.toFixed(1)}%</span></div>
+        <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">${bdg(rec)}<span style="font-size:11px;color:var(--t2);flex:1;line-height:1.5">${rsn}</span></div>
+        <div class="ai-notes"><div class="ai-notes-ttl">AI Research Notes</div>${c.ai.map(a=>`<div class="ai-pt">${a}</div>`).join('')}</div>
+      </div>`;
+
+      const as = spread>5?'background:var(--buy-bg);color:var(--buy)':spread<-5?'background:var(--sell-bg);color:var(--sell)':'background:var(--hold-bg);color:var(--hold)';
+      const tdS = 'padding:10px 14px;border-bottom:1px solid var(--bdr);font-family:var(--fm)';
+      arRows += `<tr>
+        <td style="${tdS};font-weight:700;color:var(--t1)">${c.name}</td>
+        <td style="${tdS};color:var(--t1)">$${intl.toFixed(2)}</td>
+        <td style="${tdS}" class="${cl}">${chg>=0?'+':''}${chg.toFixed(2)} (${pct>=0?'+':''}${pct.toFixed(1)}%)</td>
+        <td style="${tdS};color:var(--t1)">₹${Math.round(mcx).toLocaleString('en-IN')}/${c.mu}</td>
+        <td style="${tdS}" class="${spread>=0?'up':'dn'}">${spread>=0?'+':''}${spread.toFixed(1)}%</td>
+        <td style="${tdS}"><span class="bdg" style="font-size:9px;${as}">${spread>5?'MCX Premium':spread<-5?'MCX Discount':'Fair Value'}</span></td>
+        <td style="${tdS}">${bdg(rec)}</td>
+      </tr>`;
+      sumPts.push(`${c.name}: $${intl.toFixed(0)} → ₹${Math.round(mcx).toLocaleString('en-IN')}/${c.mu} — <b style="color:${rec==='BUY'?'var(--buy)':rec==='AVOID'?'var(--sell)':'var(--hold)'}">${rec}</b>`);
+    });
+
+    document.getElementById('cg').innerHTML = ch || '<div class="lm">No data</div>';
+    document.getElementById('arb-body').innerHTML = arRows || `<tr><td colspan="7" class="lm">No data</td></tr>`;
+    document.getElementById('comm-ai').innerHTML = `<div style="display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.8;color:var(--t2)">
+      <div style="color:var(--t1)">📅 <b>${new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</b> &nbsp;·&nbsp; USD/INR: <b style="color:var(--buy)">₹${usdInr.toFixed(2)}</b></div>
+      ${sumPts.map(p=>`<div>📊 ${p}</div>`).join('')}
+      <div style="background:var(--bg2);border-radius:var(--r12);padding:13px;border:1px solid var(--bdr)">
+        <div style="font-size:9px;font-family:var(--fm);letter-spacing:1.5px;color:var(--t3);text-transform:uppercase;margin-bottom:9px">AI Expert — Commodity Outlook</div>
+        <div style="font-size:12px;color:var(--t2);line-height:1.9">
+          Gold = safest short-term MCX trade when momentum is positive.<br>
+          Silver = higher upside, but needs volume confirmation + gold signal.<br>
+          Copper = best traded on macro cues (China PMI, US Fed).<br>
+          Always check USD/INR direction first — currency amplifies commodity moves.
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--t3)">Rule-based signals only. Not SEBI-registered advice.</div>
+    </div>`;
+    loadCommChart('gold');
+  } catch(e) { document.getElementById('cg').innerHTML=`<div class="lm" style="color:var(--sell)">Failed: ${e.message}</div>`; }
+}
+
+async function loadFutures() {
+  try {
+    const data = await api('/futures');
+    const order = ['XAU','XAG','XCU'];
+    const colMap = {XAU:'#f59e0b',XAG:'#94a3b8',XCU:'#c87941'};
+    const keys = order.filter(k => data[k]);
+    if (!keys.length) { document.getElementById('fut-g').innerHTML='<div class="lm" style="font-size:11px">Futures unavailable</div>'; return; }
+    document.getElementById('fut-g').innerHTML = keys.map(k => {
+      const d = data[k]; if (!d||d.status!=='ok') return '';
+      const cl = d.change>=0?'up':'dn';
+      const basis = d.basis||0;
+      const col = colMap[k]||'var(--acc)';
+      const lotVal = d.mcx_lot_value ? `₹${Math.round(d.mcx_lot_value/1000)}K` : '—';
+      return `<div class="fut-c" style="border-top:2px solid ${col}">
+        <div class="fut-title"><span style="color:var(--t1)">${d.name} Futures</span><span class="${cl} fv2" style="font-size:12px">${d.change>=0?'+':''}${(d.change_pct||0).toFixed(2)}%</span></div>
+        <div style="font-size:9px;font-family:var(--fm);color:var(--t3);margin-bottom:8px">${d.exchange||'MCX'}</div>
+        <div class="fut-row"><span class="fl">Intl Spot</span><span class="fv">$${(d.spot_usd||0).toFixed(2)}/${d.intl_unit}</span></div>
+        <div class="fut-row"><span class="fl">Near Month</span><span class="fv" style="color:${col}">$${(d.near_usd||0).toFixed(2)}</span></div>
+        <div class="fut-row"><span class="fl">Far Month</span><span class="fv">$${(d.far_usd||0).toFixed(2)}</span></div>
+        <div class="fut-row"><span class="fl">Basis (carry)</span><span class="fv ${basis>0?'basis-p':'basis-n'}">${basis>0?'+':''}$${basis}</span></div>
+        <div style="height:1px;background:var(--bdr);margin:7px 0"></div>
+        <div class="fut-row"><span class="fl">MCX Spot</span><span class="fv" style="color:var(--buy)">₹${(d.mcx_spot||0).toLocaleString('en-IN')}/${d.mcx_unit}</span></div>
+        <div class="fut-row"><span class="fl">MCX Near Month</span><span class="fv" style="color:${col}">₹${(d.mcx_near||0).toLocaleString('en-IN')}/${d.mcx_unit}</span></div>
+        <div class="fut-row"><span class="fl">MCX Far Month</span><span class="fv">₹${(d.mcx_far||0).toLocaleString('en-IN')}/${d.mcx_unit}</span></div>
+        <div class="fut-row"><span class="fl">Lot Size</span><span class="fv">${(d.lot_size||0).toLocaleString('en-IN')} ${d.mcx_unit}</span></div>
+        <div class="fut-row"><span class="fl">Approx Lot Value</span><span class="fv" style="color:#818cf8">${lotVal}</span></div>
+        <div class="fut-row"><span class="fl">Market Structure</span><span class="fv" style="font-size:10px;color:${d.contango?'var(--hold)':'var(--buy)'}">${d.contango?'🔺 Contango':'🔻 Backwardation'}</span></div>
+        <div class="fut-row"><span class="fl">USD/INR</span><span class="fv fv2">₹${(d.usd_inr||0).toFixed(2)}</span></div>
+      </div>`;
+    }).join('') || '<div class="lm">No futures data</div>';
+  } catch(e) { document.getElementById('fut-g').innerHTML=`<div class="lm" style="color:var(--sell);font-size:11px">Futures failed: ${e.message}</div>`; }
+}
+
+async function loadETFs() {
+  try {
+    const data = await api('/etfs');
+    const etfs = ['GOLDBEES','SILVERBEES','COPPERBEES','NIFTYBEES','JUNIORBEES'];
+    const names = { GOLDBEES:'Gold ETF',SILVERBEES:'Silver ETF',COPPERBEES:'Copper ETF',NIFTYBEES:'Nifty 50 ETF',JUNIORBEES:'Nifty Jr ETF' };
+    document.getElementById('etf-g').innerHTML = etfs.map(sym => {
+      const d = data[sym];
+      if (!d||d.status==='error') return `<div class="etf-c"><div style="font-weight:700;font-size:12px">${names[sym]||sym}</div><div style="font-size:11px;color:var(--sell);margin-top:8px">Not available</div></div>`;
+      const cl = d.changePct >= 0 ? 'up' : 'dn';
+      return `<div class="etf-c" onclick="openDet('${sym}');goPage('detail')">
+        <div style="font-weight:700;font-size:12px;color:var(--t1)">${d.name||names[sym]||sym}</div>
+        <div style="font-size:9px;font-family:var(--fm);color:var(--t3);margin-top:1px">${sym} · NSE</div>
+        <div style="font-size:17px;font-weight:800;font-family:var(--fm);margin:5px 0 2px;color:var(--t1)">₹${d.price.toFixed(2)}</div>
+        <div class="cf ${cl}" style="font-size:11px">${d.changePct>=0?'+':''}${d.changePct}%</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:7px;border-top:1px solid var(--bdr)">${bdg(d.recommendation||'HOLD')}<span style="font-size:10px;font-family:var(--fm);color:var(--t3)">${d.confidence||50}%</span></div>
+      </div>`;
+    }).join('');
+  } catch { document.getElementById('etf-g').innerHTML='<div class="lm" style="font-size:11px">ETF data unavailable</div>'; }
+}
+
+async function loadCommChart(com) {
+  CUR = com;
+  document.querySelectorAll('.ctab').forEach(t => t.classList.toggle('on', t.textContent.toLowerCase() === com));
+  const sym = com==='gold'?'XAU/USD':com==='silver'?'XAG/USD':'XCU/USD';
+  try {
+    const data = await api(`/history?symbol=${encodeURIComponent(sym)}&outputsize=30`);
+    if (!data?.values?.length) return;
+    const vals = data.values.slice().reverse();
+    const labels = vals.map(v => { try { return new Date(v.datetime).toLocaleDateString('en-IN',{month:'short',day:'numeric'}); } catch { return v.datetime||''; }});
+    const prices = vals.map(v => parseFloat(v.close)||0);
+    const col = {gold:'#f59e0b',silver:'#94a3b8',copper:'#c87941'}[com];
+    const ctx = document.getElementById('cc')?.getContext('2d'); if (!ctx) return;
+    if (CCH) CCH.destroy();
+    CCH = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets: [{ data:prices, borderColor:col, backgroundColor:col+'10', borderWidth:2.5, pointRadius:2, fill:true, tension:0.4 }] },
+      options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(10,20,40,.95)',borderColor:col,borderWidth:1}}, scales:{x:{ticks:{font:{size:9},color:'#475569',maxTicksLimit:8},grid:{color:'rgba(255,255,255,.04)'}},y:{ticks:{font:{size:9},color:'#475569'},grid:{color:'rgba(255,255,255,.04)'}}} }
+    });
+    document.getElementById('cleg').innerHTML = `<span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:${col};box-shadow:0 0 7px ${col}55"></span>${com.charAt(0).toUpperCase()+com.slice(1)} — 30-Day International Price (USD)</span>`;
+  } catch{}
+}
+function swComm(c, btn) { document.querySelectorAll('.ctab').forEach(t=>t.classList.remove('on')); btn.classList.add('on'); loadCommChart(c); }
+
+let MN_LOADED = false;
+async function loadMarketNews(force=false) {
+  if (MN_LOADED && !force) return;
+  const feed = document.getElementById('mn-feed');
+  const sumDiv = document.getElementById('mn-summary');
+  if (!feed) return;
+  feed.innerHTML = '<div class="lm"><span class="spin"></span> Fetching latest market news…</div>';
+  sumDiv.innerHTML = '<div class="lm"><span class="spin"></span> Building AI summary…</div>';
+  try {
+    const data = await api('/market-news', 20000);
+    const news = data.news || [];
+    const sum  = data.summary || {};
+    MN_LOADED = true;
+
+    const cats = {};
+    news.forEach(n => { const c = n.category||'Market'; if (!cats[c]) cats[c] = []; cats[c].push(n); });
+
+    const sentBadge = s => {
+      if (s==='positive') return `<span style="font-size:9px;padding:1px 6px;border-radius:4px;font-family:var(--fm);background:var(--buy-bg);color:var(--buy)">+ve</span>`;
+      if (s==='negative') return `<span style="font-size:9px;padding:1px 6px;border-radius:4px;font-family:var(--fm);background:var(--sell-bg);color:var(--sell)">-ve</span>`;
+      return `<span style="font-size:9px;padding:1px 6px;border-radius:4px;font-family:var(--fm);background:var(--bg3);color:var(--t3)">neutral</span>`;
+    };
+
+    let feedHTML = '';
+    if (!news.length) {
+      feedHTML = '<div class="lm">No market news available right now. Try again in a few minutes.</div>';
+    } else {
+      Object.entries(cats).forEach(([cat, items]) => {
+        feedHTML += `<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);font-family:var(--fm);margin:14px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--bdr)">${cat}</div>`;
+        feedHTML += items.map(n => `
+          <div style="padding:11px 0;border-bottom:1px solid var(--bdr);display:flex;gap:10px;align-items:flex-start">
+            <div style="width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:5px;background:${n.sentiment==='positive'?'var(--buy)':n.sentiment==='negative'?'var(--sell)':'var(--t3)'};box-shadow:0 0 ${n.sentiment!=='neutral'?'6px':'0px'} ${n.sentiment==='positive'?'var(--buy)':n.sentiment==='negative'?'var(--sell)':'var(--t3)'}"></div>
+            <div style="flex:1">
+              <div style="font-size:13px;line-height:1.5;color:var(--t1)"><a href="${n.link}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;transition:color .2s" onmouseover="this.style.color='#60a5fa'" onmouseout="this.style.color=''">${n.title}</a></div>
+              ${n.desc ? `<div style="font-size:11px;color:var(--t3);margin-top:3px;line-height:1.4">${n.desc}</div>` : ''}
+              <div style="display:flex;gap:7px;align-items:center;margin-top:4px">
+                <span style="font-size:10px;font-family:var(--fm);color:var(--t3)">${n.date.split(' ').slice(0,4).join(' ')}</span>
+                ${sentBadge(n.sentiment)}
+                <span style="font-size:9px;font-family:var(--fm);padding:1px 5px;border-radius:3px;background:var(--bg3);color:var(--t3);border:1px solid var(--bdr)">${n.source||'Market'}</span>
+              </div>
+            </div>
+          </div>`).join('');
+      });
+    }
+    feed.innerHTML = `
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:13px;font-size:11px;font-family:var(--fm)">
+        <span style="padding:4px 10px;border-radius:7px;background:var(--buy-bg);color:var(--buy)">✅ ${sum.positive||0} Positive</span>
+        <span style="padding:4px 10px;border-radius:7px;background:var(--sell-bg);color:var(--sell)">❌ ${sum.negative||0} Negative</span>
+        <span style="padding:4px 10px;border-radius:7px;background:var(--bg3);color:var(--t2)">➡️ ${sum.neutral||0} Neutral</span>
+        <span style="padding:4px 10px;border-radius:7px;background:var(--bg3);color:var(--t3)">${sum.total||0} Total · ${sum.timestamp||''}</span>
+      </div>
+      ${feedHTML}`;
+
+    const toneCol = sum.tone==='Bullish'?'var(--buy)':sum.tone==='Bearish'?'var(--sell)':'var(--hold)';
+    const toneIco = sum.tone==='Bullish'?'📈':sum.tone==='Bearish'?'📉':'➡️';
+    sumDiv.innerHTML = `
+      <div style="text-align:center;padding:16px 0;border-bottom:1px solid var(--bdr);margin-bottom:14px">
+        <div style="font-size:32px;margin-bottom:5px">${toneIco}</div>
+        <div style="font-size:20px;font-weight:900;color:${toneCol}">${sum.tone||'Mixed'}</div>
+        <div style="font-size:10px;font-family:var(--fm);color:var(--t3);letter-spacing:1px;margin-top:3px">MARKET TONE TODAY</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+        <div style="text-align:center;background:var(--buy-bg);border-radius:var(--r8);padding:10px"><div style="font-size:20px;font-weight:800;color:var(--buy)">${sum.positive||0}</div><div style="font-size:9px;font-family:var(--fm);color:var(--t3)">POSITIVE</div></div>
+        <div style="text-align:center;background:var(--sell-bg);border-radius:var(--r8);padding:10px"><div style="font-size:20px;font-weight:800;color:var(--sell)">${sum.negative||0}</div><div style="font-size:9px;font-family:var(--fm);color:var(--t3)">NEGATIVE</div></div>
+        <div style="text-align:center;background:var(--bg3);border-radius:var(--r8);padding:10px"><div style="font-size:20px;font-weight:800;color:var(--t2)">${sum.neutral||0}</div><div style="font-size:9px;font-family:var(--fm);color:var(--t3)">NEUTRAL</div></div>
+      </div>
+      <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);font-family:var(--fm);margin-bottom:9px">Key Headlines</div>
+      ${(sum.points||[]).map(p => `<div style="font-size:12px;color:var(--t2);line-height:1.6;margin-bottom:7px;padding:9px 11px;background:var(--bg2);border-radius:var(--r8);border-left:2px solid ${toneCol}">${p}</div>`).join('')}
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--bdr)">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);font-family:var(--fm);margin-bottom:9px">What This Means</div>
+        <div style="font-size:12px;color:var(--t2);line-height:1.8">
+          ${sum.tone==='Bullish'?'More positive news than negative today. Market sentiment is favourable. Look for BUY signals in your watchlist.':sum.tone==='Bearish'?'More negative news today. Tighten stop-losses. Avoid fresh buying.':'Mixed market signals. Focus on individual stock technicals.'}
+        </div>
+      </div>
+      <div style="margin-top:12px;padding:9px;background:var(--bg2);border-radius:var(--r8);font-size:10px;font-family:var(--fm);color:var(--t3)">
+        <button class="btn btn-sec" style="width:100%;font-size:10px" onclick="MN_LOADED=false;loadMarketNews(true)">⟳ Refresh News</button>
+      </div>`;
+  } catch(e) {
+    feed.innerHTML = `<div class="lm" style="color:var(--sell)">Failed to load market news: ${e.message}</div>`;
+    sumDiv.innerHTML = `<div class="lm" style="color:var(--sell)">Failed</div>`;
+  }
+}
+
+function startCd() {
+  if (cdt) clearInterval(cdt);
+  cdv = 300;
+  cdt = setInterval(() => {
+    cdv--;
+    const m = Math.floor(cdv/60), s = cdv%60;
+    document.getElementById('cd').textContent = `${m}:${s.toString().padStart(2,'0')}`;
+    if (cdv <= 0) boot();
+  }, 1000);
+}
+
+async function boot() {
+  if (busy) return;
+  busy = true; setBtn(true); startCd();
+  setSB('sb-load', 'Checking backend server…');
+  document.getElementById('warn').style.display = 'none';
+
+  try {
+    const h = await api('/health', 5000);
+    if (!h?.api_key_set) {
+      setSB('sb-err', '❌ API key not set. In CMD: set TWELVE_DATA_API_KEY=your_key_here — then restart server.');
+      document.getElementById('warn').style.display = 'block';
+      busy = false; setBtn(false); return;
+    }
+    busy = false; setBtn(false);
+    setSB('sb-load', `✅ Connected · Using Twelve Data + Yahoo · Loading ${SL.length} stocks…`);
+
+    loadStocks().then(() => {
+      const ok = Object.values(SD).filter(x => x?.status === 'ok').length;
+      setSB(ok > 0 ? 'sb-ok' : 'sb-err',
+        ok > 0
+          ? `✅ ${ok}/${SL.length} stocks loaded · 5-min cache active · Theme: 🎨 · Auto-refresh 5 min`
+          : `⚠️ ${ok}/${SL.length} loaded. Yahoo Finance may be rate-limiting — wait 30s and Refresh.`
+      );
+      setTS();
+    });
+
+  } catch(e) {
+    setSB('sb-err', `❌ Cannot reach server — is python server.py running? (${e.message})`);
+    document.getElementById('warn').style.display = 'block';
+    busy = false; setBtn(false);
+  }
+}
+
+
+
+
+// ═══════════════════════════════════════════════════════════════════
+// STOCKSENSE AI — Pure JS 5-Layer Scoring Engine
+// Uses ONLY real fields from your server.py backend
+// No AI API calls — 100% hardcoded logic, always works
+// ═══════════════════════════════════════════════════════════════════
+
+let MH_LOADED = false;
+let AI_CURRENT_SYM = '';
+let AI_CURRENT_DATA = null;
+
+// ── Market Health check — uses /market-data + /commodities ────────
+async function checkMarketHealth() {
+  MH_LOADED = true;
+  const vd = document.getElementById('mh-verdict');
+  if(vd) vd.innerHTML = '<div class="lm"><span class="spin"></span> Fetching live market data…</div>';
+
+  // Reset cards
+  ['mh-gift','mh-dow','mh-vix','mh-crude','mh-nikkei'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = '…';
+  });
+
+  let mhResult = {};
+  try {
+    // Fetch /market-data (new endpoint: VIX, Nifty, Crude, S&P500)
+    const [md, comm] = await Promise.allSettled([
+      api('/market-data', 10000),
+      api('/commodities', 10000)
+    ]);
+
+    const marketData = md.status === 'fulfilled' ? md.value : {};
+    const commData   = comm.status === 'fulfilled' ? comm.value : {};
+
+    // Extract real values
+    const vix      = marketData.vix?.price     || 15;
+    const nifty    = marketData.nifty?.price   || 0;
+    const niftyChg = marketData.nifty?.changePct || 0;
+    const crude    = marketData.crude?.price   || 78;
+    const crudeChg = marketData.crude?.changePct || 0;
+    const sp500Chg = marketData.sp500?.changePct || 0;
+    const usdInr   = marketData.usdInr?.price || commData.usdInr?.close || commData.usdInr?.price || 84;
+
+    const now      = new Date();
+    const dow      = now.getDay();     // 0=Sun,4=Thu
+    const timeIST  = now.getHours() * 60 + now.getMinutes();
+    const isThursday = dow === 4;
+
+    // ── LAYER 1 SCORING — exact STOCKSENSE rules ──────────────────
+    let score = 0;
+
+    // Factor 1: Nifty / GIFT Nifty direction (use actual Nifty from Yahoo)
+    let niftyPts = 0, niftyStr = '', niftyCls = '';
+    if      (niftyChg >= 1)    { niftyPts = 2;  niftyStr = `+${niftyChg}% — Very positive`; niftyCls = 'up'; }
+    else if (niftyChg >= 0.3)  { niftyPts = 1;  niftyStr = `+${niftyChg}% — Positive`;     niftyCls = 'up'; }
+    else if (niftyChg > -0.3)  { niftyPts = 0;  niftyStr = `${niftyChg}% — Neutral`;       niftyCls = ''; }
+    else if (niftyChg >= -1)   { niftyPts = -1; niftyStr = `${niftyChg}% — Caution`;       niftyCls = 'dn'; }
+    else                       { niftyPts = -2; niftyStr = `${niftyChg}% — DANGEROUS ⚠️`;  niftyCls = 'dn'; }
+    score += niftyPts;
+
+    // Factor 2: India VIX — exact STOCKSENSE thresholds
+    let vixPts = 0, vixStr = '', vixCol = '';
+    if      (vix < 13) { vixPts = 1;  vixStr = `${vix.toFixed(1)} — Very Low 🟢`;    vixCol = 'var(--buy)'; }
+    else if (vix < 16) { vixPts = 0.5; vixStr = `${vix.toFixed(1)} — Normal 🟡`;     vixCol = 'var(--hold)'; }
+    else if (vix < 20) { vixPts = 0;  vixStr = `${vix.toFixed(1)} — Elevated 🟠`;   vixCol = 'var(--hold)'; }
+    else               { vixPts = -1; vixStr = `${vix.toFixed(1)} — DANGER 🔴`;      vixCol = 'var(--sell)'; }
+    score += vixPts;
+
+    // Factor 3: Brent/WTI Crude — exact STOCKSENSE thresholds
+    let crudePts = 0, crudeStr = '', crudeCol = '';
+    if      (crude < 80)  { crudePts = 1;   crudeStr = `$${crude.toFixed(1)} — Safe ✅`;        crudeCol = 'var(--buy)'; }
+    else if (crude < 90)  { crudePts = 0.5; crudeStr = `$${crude.toFixed(1)} — Okay ($80–90)`;  crudeCol = 'var(--hold)'; }
+    else if (crude < 100) { crudePts = 0;   crudeStr = `$${crude.toFixed(1)} — Caution ⚠️`;     crudeCol = 'var(--hold)'; }
+    else                  { crudePts = -1;  crudeStr = `$${crude.toFixed(1)} — Danger >$100 🔴`; crudeCol = 'var(--sell)'; }
+    score += crudePts;
+
+    // Factor 4: US Markets (S&P 500)
+    let usPts = 0, usStr = '';
+    if      (sp500Chg >= 0.5)  { usPts = 1;   usStr = `S&P500 +${sp500Chg}% — Positive`; }
+    else if (sp500Chg >= 0)    { usPts = 0.5; usStr = `S&P500 +${sp500Chg}% — Flat`;     }
+    else if (sp500Chg >= -1)   { usPts = 0;   usStr = `S&P500 ${sp500Chg}% — Negative`;  }
+    else                       { usPts = -1;  usStr = `S&P500 ${sp500Chg}% — Sharp fall`; }
+    score += usPts;
+
+    // Factor 5: Timing (day + time of day)
+    let timePts = 0.5, timeStr = '✅ Good trading window';
+    if (isThursday)                              { timePts = 0;  timeStr = '⚠️ Thursday — F&O Expiry (volatile)'; }
+    if (dow === 0 || dow === 6)                  { timePts = -1; timeStr = '🔴 Weekend — Market closed'; }
+    if (timeIST > 9*60+15 && timeIST < 10*60+30){ timePts = Math.min(timePts,0); timeStr += ' | ⚠️ Before 10:30 AM — wait'; }
+    if (timeIST > 14*60+30)                      { timePts = Math.min(timePts,0); timeStr += ' | ⚠️ After 2:30 PM — end-of-day risk'; }
+    score += timePts;
+
+    // Cap 0–5
+    score = Math.max(0, Math.min(5, Math.round(score * 10) / 10));
+    const status = score >= 4 ? 'SAFE' : score >= 3 ? 'CAUTION' : 'UNSAFE';
+    const statusCol = score >= 4 ? 'var(--buy)' : score >= 3 ? 'var(--hold)' : 'var(--sell)';
+    const statusBg  = score >= 4 ? 'var(--buy-bg)' : score >= 3 ? 'var(--hold-bg)' : 'var(--sell-bg)';
+    const statusBd  = score >= 4 ? 'var(--buy-bd)' : score >= 3 ? 'var(--hold-bd)' : 'var(--sell-bd)';
+
+    // Update cards
+    const elGift = document.getElementById('mh-gift');
+    const elGiftC = document.getElementById('mh-gift-c');
+    if(elGift) elGift.textContent = nifty ? inr(Math.round(nifty)) : '—';
+    if(elGiftC) elGiftC.innerHTML = `<span class="${niftyCls}">${niftyStr}</span>`;
+
+    const elDow = document.getElementById('mh-dow');
+    const elDowC = document.getElementById('mh-dow-c');
+    if(elDow) elDow.textContent = `$${crude.toFixed(1)}`;
+    if(elDowC) elDowC.innerHTML = `<span style="color:${crudeCol}">${crudeStr}</span>`;
+
+    const elVix = document.getElementById('mh-vix');
+    const elVixC = document.getElementById('mh-vix-c');
+    if(elVix) elVix.textContent = vix.toFixed(1);
+    if(elVixC) elVixC.innerHTML = `<span style="color:${vixCol}">${vixStr}</span>`;
+
+    const elCrude = document.getElementById('mh-crude');
+    const elCrudeC = document.getElementById('mh-crude-c');
+    if(elCrude) elCrude.textContent = '₹' + usdInr.toFixed(2);
+    if(elCrudeC) elCrudeC.innerHTML = `<span style="color:${usdInr < 83 ? 'var(--buy)' : usdInr < 85 ? 'var(--hold)' : 'var(--sell)'}">USD/INR ${usdInr < 83 ? '✅ Strong' : usdInr < 85 ? '🟡 Stable' : '⚠️ Weak'}</span>`;
+
+    const elNik = document.getElementById('mh-nikkei');
+    const elNikC = document.getElementById('mh-nikkei-c');
+    if(elNik) elNik.textContent = sp500Chg >= 0 ? `+${sp500Chg}%` : `${sp500Chg}%`;
+    if(elNikC) elNikC.innerHTML = `<span class="${sp500Chg >= 0 ? 'up' : 'dn'}">${usStr}</span>`;
+
+    const summaryMsg = score >= 4
+      ? 'Market conditions are favourable. Good day to trade with standard position size.'
+      : score >= 3
+      ? `Caution — ${isThursday ? 'F&O expiry today' : vix >= 16 ? 'VIX elevated' : 'some risk factors present'}. Trade with reduced size.`
+      : `Market unsafe — ${vix >= 20 ? 'VIX in danger zone' : isThursday ? 'F&O expiry + weak market' : 'multiple red flags'}. Avoid new positions.`;
+
+    if(vd) vd.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:var(--r8);background:${statusBg};border:1px solid ${statusBd};flex-wrap:wrap">
+        <span style="font-size:20px">${score >= 4 ? '✅' : score >= 3 ? '⚠️' : '🚨'}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:800;color:${statusCol}">Layer 1 Score: ${score}/5 — ${status}</div>
+          <div style="font-size:11px;color:var(--t2);margin-top:2px">${summaryMsg}</div>
+          <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:4px">
+            Nifty ${niftyChg >= 0 ? '+' : ''}${niftyChg}% &nbsp;|&nbsp; VIX: ${vix.toFixed(1)} &nbsp;|&nbsp; Crude: $${crude.toFixed(1)} &nbsp;|&nbsp; S&P: ${sp500Chg >= 0 ? '+' : ''}${sp500Chg}% &nbsp;|&nbsp; ₹${usdInr.toFixed(2)}
+            ${isThursday ? ' &nbsp;|&nbsp; <span style="color:var(--sell);font-weight:700">⚠️ Thursday F&O Expiry</span>' : ''}
+          </div>
+        </div>
+        ${score < 4 ? `<div style="font-family:var(--fm);font-size:10px;padding:4px 10px;border-radius:6px;white-space:nowrap;background:${score >= 3 ? 'var(--hold-bg)' : 'var(--sell-bg)'};color:${score >= 3 ? 'var(--hold)' : 'var(--sell)'};border:1px solid ${score >= 3 ? 'var(--hold-bd)' : 'var(--sell-bd)'}">${score >= 3 ? '⚠️ Trade small (50% size)' : '⚠️ Very cautious (25% size)'}</div>` : ''}
+      </div>`;
+
+    // Store globally for layer 1 usage
+    window.MH_DATA = { score, status, vix, crude, usdInr, niftyChg, sp500Chg, isThursday, timeIST };
+
+  } catch(e) {
+    if(vd) vd.innerHTML = `<div class="lm" style="color:var(--sell)">Market data failed: ${e.message}</div>`;
+    window.MH_DATA = { score: 3, status: 'CAUTION', vix: 15, crude: 80, usdInr: 84, niftyChg: 0, sp500Chg: 0, isThursday: new Date().getDay() === 4 };
+  }
+}
+
+// ── Autocomplete for AI tab ────────────────────────────────────────
+let aiAcT = null;
+function aiSymAc(q) {
+  clearTimeout(aiAcT);
+  const d = document.getElementById('ai-sym-drop');
+  if (!q || q.length < 2) { d.classList.remove('show'); return; }
+  aiAcT = setTimeout(async () => {
+    try {
+      const res = await api('/search?q=' + encodeURIComponent(q), 4000);
+      const items = (res.results || []).slice(0, 6);
+      if (!items.length) { d.classList.remove('show'); return; }
+      d.innerHTML = items.map(r => `<div class="drop-item" onclick="aiPickSym('${r.symbol}')">
+        <div><div class="di-sym">${r.symbol}</div><div class="di-nm">${r.name}</div></div>
+        <span class="di-sec">${r.sector}</span></div>`).join('');
+      d.classList.add('show');
+    } catch {}
+  }, 200);
+}
+function aiPickSym(sym) {
+  document.getElementById('ai-sym-inp').value = sym;
+  document.getElementById('ai-sym-drop').classList.remove('show');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 5-LAYER SCORING FUNCTIONS — all use real backend fields
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Layer 1: Global Market from window.MH_DATA ───────────────────
+function calcLayer1() {
+  const mh = window.MH_DATA || { score: 3, status: 'CAUTION', vix: 15, crude: 80, isThursday: false };
+  const rows = [
+    { ico: mh.niftyChg >= 0.3 ? '✅' : mh.niftyChg < -0.5 ? '❌' : '➡️',
+      label: 'Nifty 50',
+      value: `${mh.niftyChg >= 0 ? '+' : ''}${mh.niftyChg}% — ${mh.niftyChg >= 1 ? 'Very positive' : mh.niftyChg >= 0.3 ? 'Positive' : mh.niftyChg > -0.3 ? 'Neutral' : 'Negative'}`,
+      pts: mh.niftyChg >= 1 ? 2 : mh.niftyChg >= 0.3 ? 1 : mh.niftyChg > -0.3 ? 0 : mh.niftyChg >= -1 ? -1 : -2 },
+    { ico: mh.vix < 16 ? '✅' : mh.vix < 20 ? '⚠️' : '❌',
+      label: 'India VIX',
+      value: `${mh.vix.toFixed ? mh.vix.toFixed(1) : mh.vix} — ${mh.vix < 13 ? 'Very Low 🟢' : mh.vix < 16 ? 'Normal 🟡' : mh.vix < 20 ? 'Elevated 🟠' : 'DANGER 🔴'}`,
+      pts: mh.vix < 13 ? 1 : mh.vix < 16 ? 0.5 : mh.vix < 20 ? 0 : -1 },
+    { ico: mh.crude < 90 ? '✅' : mh.crude < 100 ? '⚠️' : '❌',
+      label: 'Crude Oil',
+      value: `$${mh.crude.toFixed ? mh.crude.toFixed(1) : mh.crude}/barrel — ${mh.crude < 80 ? 'Safe ✅' : mh.crude < 90 ? 'Okay' : mh.crude < 100 ? 'Caution ⚠️' : 'Danger 🔴'}`,
+      pts: mh.crude < 80 ? 1 : mh.crude < 90 ? 0.5 : mh.crude < 100 ? 0 : -1 },
+    { ico: mh.sp500Chg >= 0 ? '✅' : '❌',
+      label: 'S&P 500',
+      value: `${mh.sp500Chg >= 0 ? '+' : ''}${mh.sp500Chg}% — ${mh.sp500Chg >= 0.5 ? 'Positive' : mh.sp500Chg >= 0 ? 'Flat' : mh.sp500Chg >= -1 ? 'Negative' : 'Sharp fall'}`,
+      pts: mh.sp500Chg >= 0.5 ? 1 : mh.sp500Chg >= 0 ? 0.5 : mh.sp500Chg >= -1 ? 0 : -1 },
+    { ico: mh.isThursday ? '⚠️' : '✅',
+      label: 'Day/Timing',
+      value: mh.isThursday ? '⚠️ Thursday — F&O Expiry Day (volatile, reduce size)' : '✅ Not expiry day — good trading window',
+      pts: mh.isThursday ? -0.5 : 0.5 },
+  ];
+  return { score: mh.score, status: mh.status, rows };
+}
+
+// ── Layer 2: Technical — uses real s.indicators fields ───────────
+function calcLayer2(s) {
+  const ind   = s.indicators || {};
+  const price = s.price || 0;
+  let score   = 0;
+  const rows  = [];
+
+  // Moving Averages (sma20 + sma50 — exactly what backend returns)
+  let maPts = 0;
+  const aboveSMA20 = ind.sma20 && price > ind.sma20;
+  const aboveSMA50 = ind.sma50 && price > ind.sma50;
+  if (aboveSMA20) maPts += 0.5;
+  if (aboveSMA50) maPts += 1;
+  // Confirmed downtrend: below both
+  if (ind.sma20 && ind.sma50 && price < ind.sma20 && price < ind.sma50) maPts = -2;
+  rows.push({
+    ico: maPts > 0 ? '✅' : maPts < 0 ? '❌' : '➡️',
+    label: 'Moving Avgs',
+    value: `₹${price.toFixed(0)} vs SMA20:₹${ind.sma20||'—'} SMA50:₹${ind.sma50||'—'}${aboveSMA20 && aboveSMA50 ? ' — Uptrend ✅' : !aboveSMA20 && !aboveSMA50 ? ' — Downtrend ❌' : ' — Mixed'}`,
+    pts: maPts
+  });
+  score += maPts;
+
+  // RSI — exact STOCKSENSE thresholds
+  const rsi = parseFloat(ind.rsi) || 50;
+  let rsiPts = 0, rsiLabel = '';
+  if      (rsi < 30) { rsiPts = 2;   rsiLabel = `${rsi} — Extreme Oversold 🔥 (strong bounce likely)`; }
+  else if (rsi < 45) { rsiPts = 1.5; rsiLabel = `${rsi} — Oversold Bounce Zone ✅ (best entry!)`; }
+  else if (rsi < 60) { rsiPts = 1;   rsiLabel = `${rsi} — Healthy Momentum ✅`; }
+  else if (rsi < 70) { rsiPts = 0.5; rsiLabel = `${rsi} — Strong but getting hot ⚠️`; }
+  else               { rsiPts = -1;  rsiLabel = `${rsi} — OVERBOUGHT ❌ — do not buy!`; }
+  rows.push({ ico: rsiPts > 0 ? '✅' : rsiPts < 0 ? '❌' : '⚠️', label: 'RSI (14)', value: rsiLabel, pts: rsiPts });
+  score += rsiPts;
+
+  // MACD — uses macdHist and macd from backend
+  const macdHist = parseFloat(ind.macdHist) || 0;
+  const macdLine = parseFloat(ind.macd) || 0;
+  let macdPts = 0, macdLabel = '';
+  if      (macdHist > 0 && macdLine > 0) { macdPts = 1.5; macdLabel = 'Bullish crossover + positive histogram ✅'; }
+  else if (macdHist > 0)                 { macdPts = 1;   macdLabel = 'Histogram turning positive ↑ ✅'; }
+  else if (macdHist < 0 && macdLine < 0) { macdPts = -1;  macdLabel = 'Negative and falling — downtrend ❌'; }
+  else                                    { macdPts = 0;   macdLabel = 'Neutral — wait for crossover'; }
+  rows.push({ ico: macdPts > 0 ? '✅' : macdPts < 0 ? '❌' : '➡️', label: 'MACD', value: macdLabel, pts: macdPts });
+  score += macdPts;
+
+  // Volume — uses volumeSignal from backend
+  const volSig = ind.volumeSignal || 'normal';
+  let volPts = 0, volLabel = '';
+  // High volume + price falling = distribution (dangerous)
+  if      (volSig === 'high' && (s.changePct || 0) < -1) { volPts = -1;  volLabel = '🔴 High vol + price falling = Distribution! Avoid.'; }
+  else if (volSig === 'high')                             { volPts = 1.5; volLabel = '🔥 Volume Spike 2x+ avg — institutional buying!'; }
+  else if (volSig === 'normal')                           { volPts = 0.5; volLabel = 'Normal volume — standard signal'; }
+  else                                                    { volPts = 0;   volLabel = '↓ Below average — weak signal, no conviction'; }
+  rows.push({ ico: volPts > 0 ? '✅' : volPts < 0 ? '❌' : '➡️', label: 'Volume', value: volLabel, pts: volPts });
+  score += volPts;
+
+  // Support & Resistance — uses ind.support and ind.resistance (20-day range)
+  let srPts = 0, srLabel = '';
+  if (ind.support && ind.resistance && price) {
+    const distFromSupp = ((price - ind.support) / ind.support) * 100;
+    const distFromRes  = ((ind.resistance - price) / price) * 100;
+    if      (distFromSupp <= 2 && (s.changePct || 0) >= 0) { srPts = 1;    srLabel = `Bouncing from support ₹${inr(ind.support)} ✅ ideal entry`; }
+    else if (distFromSupp <= 5)                             { srPts = 0.5;  srLabel = `Near support ₹${inr(ind.support)} — good zone`; }
+    else if (distFromRes  <= 1.5)                           { srPts = -0.5; srLabel = `At resistance ₹${inr(ind.resistance)} ⚠️ — breakout or reject?`; }
+    else if (price > ind.resistance)                        { srPts = 1;    srLabel = `Breaking above resistance ₹${inr(ind.resistance)} 🚀`; }
+    else { srPts = 0.5; srLabel = `Range: Support ₹${inr(ind.support)} → Resist ₹${inr(ind.resistance)}`; }
+  } else { srLabel = 'S/R data building (need 20+ days history)'; }
+  rows.push({ ico: srPts >= 0.5 ? '✅' : srPts < 0 ? '⚠️' : '➡️', label: 'Sup/Resist', value: srLabel, pts: srPts });
+  score += srPts;
+
+  // 52-Week position — uses high52w and low52w from backend
+  const h52 = s.high52w || price * 1.3;
+  const l52 = s.low52w  || price * 0.7;
+  const pctAboveLow  = l52 > 0 ? ((price - l52) / l52) * 100 : 50;
+  const pctBelowHigh = h52 > 0 ? ((h52 - price) / h52) * 100 : 10;
+  let w52Pts = 0, w52Label = '';
+  if      (pctAboveLow <= 5)   { w52Pts = 1;    w52Label = `${pctAboveLow.toFixed(0)}% above 52W low ₹${inr(l52)} — max downside protection ✅`; }
+  else if (pctAboveLow <= 30)  { w52Pts = 0.5;  w52Label = `${pctAboveLow.toFixed(0)}% above 52W low — healthy range`; }
+  else if (pctBelowHigh <= 3)  { w52Pts = -0.5; w52Label = `Within 3% of 52W high ₹${inr(h52)} — risky entry zone ⚠️`; }
+  else                         { w52Pts = 0;    w52Label = `52W: ₹${inr(l52)}–₹${inr(h52)} | CMP ₹${inr(price)}`; }
+  rows.push({ ico: w52Pts > 0 ? '✅' : w52Pts < 0 ? '⚠️' : '➡️', label: '52W Position', value: w52Label, pts: w52Pts });
+  score += w52Pts;
+
+  // Cap 0–7
+  score = Math.max(0, Math.min(7, Math.round(score * 10) / 10));
+  return { score, rows };
+}
+
+// ── Layer 3: Fundamentals — uses available backend fields as proxies
+// Backend does NOT return PE, debt, promoter — we use what we have
+function calcLayer3(s) {
+  let score = 0;
+  const rows = [];
+  const ind  = s.indicators || {};
+  const rsi  = parseFloat(ind.rsi) || 50;
+
+  // Factor 1: Recent Performance proxy (confidence score from backend calc)
+  // Backend's confidence is computed from RSI+MACD+Volume+Support — reflects fundamentals
+  const conf = s.confidence || 50;
+  let perfPts = 0, perfLabel = '';
+  if      (conf >= 75) { perfPts = 2;  perfLabel = `Confidence ${conf}% — Strong buy signal from backend AI ✅`; }
+  else if (conf >= 60) { perfPts = 1;  perfLabel = `Confidence ${conf}% — Positive signal`; }
+  else if (conf >= 45) { perfPts = 0.5; perfLabel = `Confidence ${conf}% — Neutral`; }
+  else                 { perfPts = 0;  perfLabel = `Confidence ${conf}% — Weak signal`; }
+  rows.push({ ico: perfPts >= 1 ? '✅' : '➡️', label: 'AI Confidence', value: perfLabel, pts: perfPts });
+  score += perfPts;
+
+  // Factor 2: Price vs SMAs (proxy for earnings/growth trend)
+  let trendPts = 0, trendLabel = '';
+  if (ind.sma20 && ind.sma50 && s.price) {
+    if (s.price > ind.sma20 && ind.sma20 > ind.sma50) {
+      trendPts = 1; trendLabel = `Price>SMA20>SMA50 — Confirmed uptrend ✅ (earnings likely growing)`;
+    } else if (s.price > ind.sma50) {
+      trendPts = 0.5; trendLabel = `Above SMA50 — medium-term trend positive`;
+    } else if (s.price < ind.sma20 && s.price < ind.sma50) {
+      trendPts = -1; trendLabel = `Below both SMAs — fundamental weakness likely ❌`;
+    } else {
+      trendPts = 0; trendLabel = `Mixed MA signals — no clear trend`;
+    }
+  } else { trendLabel = 'MA data loading…'; }
+  rows.push({ ico: trendPts > 0 ? '✅' : trendPts < 0 ? '❌' : '➡️', label: 'Price Trend', value: trendLabel, pts: trendPts });
+  score += trendPts;
+
+  // Factor 3: RSI as valuation proxy (low RSI = oversold = potentially undervalued)
+  let valPts = 0, valLabel = '';
+  if      (rsi < 35)  { valPts = 1;    valLabel = `RSI ${rsi} — Deeply oversold: potential value buy ✅`; }
+  else if (rsi < 50)  { valPts = 0.5;  valLabel = `RSI ${rsi} — Slightly undervalued territory`; }
+  else if (rsi < 65)  { valPts = 0;    valLabel = `RSI ${rsi} — Fair value zone`; }
+  else                { valPts = -0.5; valLabel = `RSI ${rsi} — Potentially overvalued ⚠️`; }
+  rows.push({ ico: valPts > 0 ? '✅' : valPts < 0 ? '⚠️' : '➡️', label: 'Valuation (RSI)', value: valLabel, pts: valPts });
+  score += valPts;
+
+  // Factor 4: Volume trend (institutional activity proxy)
+  const volSig = ind.volumeSignal || 'normal';
+  let instPts = 0, instLabel = '';
+  if      (volSig === 'high' && (s.changePct || 0) > 0) { instPts = 1;    instLabel = 'High volume + price up = institutional accumulation ✅'; }
+  else if (volSig === 'high' && (s.changePct || 0) < 0) { instPts = -0.5; instLabel = 'High volume + price down = institutional distribution ❌'; }
+  else if (volSig === 'high')                            { instPts = 0.5;  instLabel = 'High volume — strong participation'; }
+  else                                                   { instPts = 0;    instLabel = 'Normal volume — no unusual institutional activity'; }
+  rows.push({ ico: instPts >= 0.5 ? '✅' : instPts < 0 ? '❌' : '➡️', label: 'Inst. Activity', value: instLabel, pts: instPts });
+  score += instPts;
+
+  // Factor 5: Sentiment score
+  let sentPts = 0, sentLabel = '';
+  if      (s.sentiment === 'Bullish')  { sentPts = 1;    sentLabel = 'Backend signals Bullish fundamental picture ✅'; }
+  else if (s.sentiment === 'Neutral')  { sentPts = 0.5;  sentLabel = 'Neutral — no strong fundamental signal'; }
+  else if (s.sentiment === 'Bearish')  { sentPts = -0.5; sentLabel = 'Backend signals Bearish — caution ⚠️'; }
+  rows.push({ ico: sentPts > 0 ? '✅' : sentPts < 0 ? '⚠️' : '➡️', label: 'Sentiment', value: sentLabel, pts: sentPts });
+  score += sentPts;
+
+  // Factor 6: Recommendation from backend
+  let recPts = 0, recLabel = '';
+  if      (s.recommendation === 'BUY')   { recPts = 0.5;  recLabel = 'Backend recommendation: BUY ✅'; }
+  else if (s.recommendation === 'HOLD')  { recPts = 0;    recLabel = 'Backend recommendation: HOLD — wait for clearer signal'; }
+  else if (s.recommendation === 'AVOID') { recPts = -0.5; recLabel = 'Backend recommendation: AVOID ❌'; }
+  rows.push({ ico: recPts >= 0.5 ? '✅' : recPts < 0 ? '❌' : '➡️', label: 'Rec. Signal', value: recLabel, pts: recPts });
+  score += recPts;
+
+  score = Math.max(0, Math.min(6, Math.round(score * 10) / 10));
+  return { score, rows };
+}
+
+// ── Layer 4: News — uses /news endpoint (title, sentiment, impact) ─
+function calcLayer4(s, news) {
+  let score = 0;
+  const rows = [];
+  const newsArr = news || [];
+
+  // Count sentiment from news[].sentiment (from backend classify_sentiment)
+  const posN = newsArr.filter(n => n.sentiment === 'positive');
+  const negN = newsArr.filter(n => n.sentiment === 'negative');
+
+  // Base score from sentiment balance
+  if      (posN.length > negN.length * 2)    score += 2;
+  else if (posN.length > negN.length)         score += 1;
+  else if (negN.length > posN.length * 2)     score -= 2;
+  else if (negN.length > posN.length)         score -= 1;
+
+  // Scan news titles for STOCKSENSE keyword rules
+  const allText = newsArr.map(n => (n.title + ' ' + (n.desc || '')).toLowerCase()).join(' ');
+
+  // Positive catalysts — +3 pts
+  if (/order|contract|wins|secures|bags|awarded/.test(allText)) {
+    const n = newsArr.find(x => /order|contract|wins|secures|bags|awarded/.test((x.title||'').toLowerCase()));
+    score += 2;
+    rows.push({ ico: '✅', label: '📦 Order Win', value: (n?.title || 'Order/Contract news detected').slice(0,75), pts: 2 });
+  }
+  if (/beat|exceed|profit.*rise|strong.*result|net.*profit.*up/.test(allText)) {
+    score += 2;
+    rows.push({ ico: '✅', label: '📈 Earnings Beat', value: 'Strong earnings/results detected', pts: 2 });
+  }
+  if (/upgrade|target.*rais|buy.*initiat|price.*target.*increas/.test(allText)) {
+    score += 2;
+    rows.push({ ico: '✅', label: '⬆️ Analyst Upgrade', value: 'Analyst upgrade or target raised', pts: 2 });
+  }
+  if (/partner|mou|memorandum|agreement|collaborat/.test(allText)) {
+    score += 1;
+    rows.push({ ico: '✅', label: '🤝 Partnership', value: 'MoU/Partnership announcement', pts: 1 });
+  }
+
+  // Negative catalysts
+  if (/sebi|ed |cbi|fraud|investigation|probe/.test(allText)) {
+    score -= 4;
+    rows.push({ ico: '❌', label: '🚨 SEBI/ED Alert', value: 'Regulatory investigation detected — AVOID', pts: -4 });
+  }
+  if (/miss|disappoint|net.*loss|below.*estimate|weak.*result/.test(allText)) {
+    score -= 3;
+    rows.push({ ico: '❌', label: '📉 Earnings Miss', value: 'Earnings miss or weak results detected', pts: -3 });
+  }
+  if (/downgrade|sell.*initiat|target.*cut|lower.*target/.test(allText)) {
+    score -= 2;
+    rows.push({ ico: '❌', label: '⬇️ Downgrade', value: 'Analyst downgrade or target cut', pts: -2 });
+  }
+  if (/resign|quit|steps.*down|exits.*as/.test(allText)) {
+    score -= 1;
+    rows.push({ ico: '❌', label: '👤 Mgmt Exit', value: 'Key management resignation detected', pts: -1 });
+  }
+
+  // If no specific rows, show top 3 news from backend
+  if (rows.length === 0 && newsArr.length > 0) {
+    // Show HIGH impact news first
+    const sorted = [...newsArr].sort((a,b) => {
+      const w = {HIGH:3,MEDIUM:2,LOW:1};
+      return (w[b.impact]||1) - (w[a.impact]||1);
+    });
+    sorted.slice(0, 3).forEach(n => {
+      const pts = n.sentiment === 'positive' ? 1 : n.sentiment === 'negative' ? -1 : 0;
+      rows.push({
+        ico: pts > 0 ? '✅' : pts < 0 ? '❌' : '➡️',
+        label: `${n.impact || 'LOW'} Impact`,
+        value: (n.title || '').slice(0, 80) + (n.title?.length > 80 ? '…' : ''),
+        pts
+      });
+    });
+  }
+
+  if (rows.length === 0) {
+    rows.push({ ico: '➡️', label: 'No News', value: 'No significant news found — neutral impact', pts: 0 });
+  }
+
+  score = Math.max(-5, Math.min(5, score));
+  const catalystAlert = score <= -3;
+  return { score, rows, catalystAlert };
+}
+
+// ── Layer 5: Risk Qualification blockers ─────────────────────────
+// HARD blocks = stock genuinely untradeable (circuit, weekend)
+// SOFT warns  = trade with caution, reduced position size
+// KEY CHANGE: VIX > 20 is a WARNING not a hard block
+// Scanner still shows picks — just flags the risk clearly
+function calcLayer5(s) {
+  const hardBlocks = [];
+  const softWarns  = [];
+  const mh         = window.MH_DATA || {};
+  const now        = new Date();
+  const dow        = now.getDay();
+  const timeIST    = now.getHours() * 60 + now.getMinutes();
+  const ind        = s.indicators || {};
+  const vix        = mh.vix || 0;
+
+  // ── HARD BLOCKS (absolute no-trade situations) ──────────────
+  // 1. Weekend — market closed
+  if (dow === 0 || dow === 6)
+    hardBlocks.push('❌ Weekend — NSE market is closed today.');
+
+  // 2. Stock in freefall > 10% — circuit risk
+  if ((s.changePct || 0) < -10)
+    hardBlocks.push('❌ Down ' + Math.abs(s.changePct).toFixed(1) + '% — possible circuit. Wait next session.');
+
+  // 3. Crash + high volume = institutional exit, not bounce
+  if ((s.changePct || 0) < -6 && ind.volumeSignal === 'high')
+    hardBlocks.push('❌ Heavy crash + volume spike — institutional selling. Not a bounce yet.');
+
+  // ── SOFT WARNINGS (trade with care) ─────────────────────────
+  // VIX levels — graded warnings
+  if      (vix >= 25) softWarns.push('🔴 VIX ' + vix.toFixed(1) + ' — Very high fear. Use 25% position size only.');
+  else if (vix >= 20) softWarns.push('⚠️ VIX ' + vix.toFixed(1) + ' — Elevated fear. Use 50% position size. Tight stop.');
+  else if (vix >= 16) softWarns.push('⚠️ VIX ' + vix.toFixed(1) + ' — Slightly elevated. Trade carefully.');
+
+  // Thursday F&O expiry
+  if (dow === 4) softWarns.push('⚠️ Thursday F&O Expiry — high volatility. Use 50% reduced size.');
+
+  // Timing warnings
+  if (timeIST > 9*60+15 && timeIST < 10*60+30)
+    softWarns.push('⚠️ Before 10:30 AM IST — wait for opening volatility to settle.');
+  if (timeIST > 14*60+30 && timeIST < 15*60+30)
+    softWarns.push('⚠️ After 2:30 PM IST — avoid fresh entries near market close.');
+
+  // Overbought + chasing
+  if ((ind.rsi || 50) > 75 && (s.changePct || 0) > 3)
+    softWarns.push('⚠️ RSI ' + (ind.rsi||0) + ' overbought + up ' + (s.changePct||0) + '% — do NOT chase.');
+
+  // Already ran a lot today
+  if ((s.changePct || 0) >= 3)
+    softWarns.push('⚠️ Already up ' + (s.changePct||0) + '% today — wait for 0.5-1% dip.');
+
+  // Below both MAs + falling — soft warning only
+  if (ind.sma50 && ind.sma20 && s.price &&
+      s.price < ind.sma20 && s.price < ind.sma50 && (s.changePct || 0) < -2)
+    softWarns.push('⚠️ Below SMA20 + SMA50 while falling — weak setup, enter on reversal only.');
+
+  const clear = hardBlocks.length === 0;
+  return { clear, blockers: hardBlocks, softWarns, isThursday: dow === 4 };
+}
+
+
+// ── Final Signal from total score ────────────────────────────────
+function calcFinalSignal(l1, l2, l3, l4) {
+  const total = l1.score + l2.score + l3.score + l4.score;
+  let signal = '', cls = '', emoji = '', col = '';
+  if      (total >= 19) { signal='STRONG BUY'; cls='vb-strong'; emoji='🟢🟢'; col='var(--buy)'; }
+  else if (total >= 15) { signal='BUY';         cls='vb-buy';    emoji='🟢';   col='var(--buy)'; }
+  else if (total >= 11) { signal='WEAK BUY';    cls='vb-weak';   emoji='🟡';   col='var(--hold)'; }
+  else if (total >= 7)  { signal='WATCH';        cls='vb-watch';  emoji='⚠️';   col='var(--t2)'; }
+  else if (total >= 0)  { signal='NO TRADE';    cls='vb-notrade'; emoji='🔴';  col='var(--sell)'; }
+  else                  { signal='DANGER';       cls='vb-notrade'; emoji='🚨'; col='var(--sell)'; }
+  return { total: parseFloat(total.toFixed(1)), signal, cls, emoji, col };
+}
+
+// ── Auto Trade Plan calculation ───────────────────────────────────
+function buildTradePlan(s, final, l5, budget) {
+  if (!['STRONG BUY','BUY','WEAK BUY'].includes(final.signal)) return { show: false };
+  if (l5.blockers.filter(b => b.startsWith('❌') || b.startsWith('🔴')).length > 0) return { show: false, blocked: true };
+
+  const ind   = s.indicators || {};
+  const price = s.price || 0;
+  if (!price) return { show: false };
+
+  // Use backend's already-computed tradeLevels if available — they use support/resistance
+  // to align SL with real technical levels
+  const tl = s.tradeLevels || {};
+
+  let entry    = tl.entry    || price;
+  let sl       = tl.stop_loss || 0;
+  let t1       = tl.target1  || 0;
+  let t2       = tl.target2  || 0;
+  let slPct    = tl.risk_pct || 2.5;
+
+  // Override with STOCKSENSE exact rules on top of backend levels:
+  // Stop loss = 2% for STRONG BUY, 2.5% for BUY, 3% for WEAK BUY
+  if (final.signal === 'STRONG BUY' && slPct > 2.0) { sl = parseFloat((entry * 0.980).toFixed(0)); slPct = 2.0; }
+  else if (final.signal === 'BUY'   && slPct > 2.5) { sl = parseFloat((entry * 0.975).toFixed(0)); slPct = 2.5; }
+  else if (final.signal === 'WEAK BUY')              { sl = parseFloat((entry * 0.970).toFixed(0)); slPct = 3.0; }
+  // Align SL with support if support is close
+  if (ind.support && ind.support > sl && ind.support < entry * 0.99) sl = parseFloat((ind.support * 0.995).toFixed(0));
+
+  // STOCKSENSE targets: T1=+1.5%, T2=+2.5%, T3=+4%
+  t1 = parseFloat((entry * 1.015).toFixed(0));
+  t2 = parseFloat((entry * 1.025).toFixed(0));
+  const t3 = parseFloat((entry * 1.040).toFixed(0));
+
+  const reward = ((t2 - entry) / entry) * 100;
+  const risk   = ((entry - sl) / entry) * 100;
+  const rr     = risk > 0 ? parseFloat((reward / risk).toFixed(1)) : 0;
+  const rrOk   = rr >= 1.5;
+
+  const shares     = Math.floor(budget / entry);
+  const investment = Math.round(shares * entry);
+  const profitT1   = Math.round(shares * (t1 - entry));
+  const profitT2   = Math.round(shares * (t2 - entry));
+  const maxLoss    = Math.round(shares * (entry - sl));
+
+  const waitForDip = (s.changePct || 0) >= 2;
+
+  return {
+    show: true, waitForDip,
+    entry, sl, slPct: parseFloat(slPct).toFixed(1),
+    t1, t2, t3, rr, rrOk,
+    shares, investment, profitT1, profitT2, maxLoss
+  };
+}
+
+// ── Verdict text ──────────────────────────────────────────────────
+function buildVerdict(s, l1, l2, l3, l4, l5, final) {
+  const ind  = s.indicators || {};
+  const mh   = window.MH_DATA || {};
+  const parts = [];
+
+  if (['STRONG BUY','BUY'].includes(final.signal)) {
+    if (l2.score >= 5) parts.push(`Strong technical setup — RSI ${ind.rsi||'?'} in buy zone${ind.volumeSignal==='high'?' with volume spike confirming the move':''}`);
+    if (l1.score >= 4) parts.push('global markets supportive');
+    if (l4.score >= 2) parts.push('positive news flow adding momentum');
+  } else if (final.signal === 'WEAK BUY') {
+    parts.push(`Marginal setup at ${final.total}/23 — enter with HALF position only. RSI ${ind.rsi||'?'} ${(ind.rsi||50) < 50 ? 'in oversold zone' : 'needs to come down'}`);
+    if (l1.score < 3) parts.push('global markets not fully supportive — keep size small');
+  } else if (final.signal === 'WATCH') {
+    parts.push(`Score ${final.total}/23 — not enough conviction to enter yet. Wait for RSI to drop below 45 or volume spike to confirm before buying`);
+  } else {
+    parts.push(`Score ${final.total}/23 — multiple red flags present`);
+    if (!l5.clear) parts.push('Layer 5 hard blockers found');
+    if (l4.catalystAlert) parts.push('negative news catalyst dragging sentiment');
+    parts.push('skip this stock today and look for a better setup');
+  }
+  if (l5.isThursday) parts.push('Thursday F&O expiry — if you must enter, use 50% position size only');
+
+  return parts.join('; ') + '.';
+}
+
+// ── Top 3 Risks ───────────────────────────────────────────────────
+function buildRisks(s, l1, l2, l3, l4, l5, final) {
+  const risks = [];
+  const ind = s.indicators || {};
+  const mh  = window.MH_DATA || {};
+
+  // Risk 1: Market-level
+  if ((mh.vix || 0) >= 16) risks.push(`India VIX elevated at ${mh.vix} — fear is above normal. Moves can reverse quickly without warning. Use tight stop.`);
+  else if (l1.score < 3)   risks.push(`Market score only ${l1.score}/5 — global conditions weak. Any negative global trigger (crude, Fed, geopolitics) can reverse this trade.`);
+  else                     risks.push(`Market score ${l1.score}/5. Key watchouts: ${(mh.crude || 0) > 85 ? `Crude at $${mh.crude} could pressure inflation` : 'monitor GIFT Nifty at 8:30 AM before entry'}.`);
+
+  // Risk 2: Technical-level
+  if ((ind.rsi || 50) > 70) risks.push(`RSI ${ind.rsi} is overbought — stock is extended. Any negative news can cause sharp 3–5% correction. Strict stop loss ₹${inr(Math.round((s.price||0)*0.975))} is mandatory.`);
+  else if (l5.isThursday)   risks.push(`Thursday F&O expiry — option writers defend key strikes aggressively. Expect sharp 1–2% whipsaw moves intraday. Reduce position by 50%.`);
+  else                      risks.push(`Technical risk: if price breaks support ₹${inr(ind.support || Math.round((s.price||0)*0.97))}, next support is ${ind.sma50 ? `SMA50 ₹${inr(ind.sma50)}` : 'significantly lower'}. Exit on SL breach immediately.`);
+
+  // Risk 3: Trade management rule — always
+  const sl = final.signal === 'STRONG BUY' ? Math.round((s.price||0)*0.980)
+           : final.signal === 'BUY'        ? Math.round((s.price||0)*0.975)
+           :                                 Math.round((s.price||0)*0.970);
+  risks.push(`Always exit by Day 3 — never convert this swing trade into a long-term hold. If SL ₹${inr(sl)} is hit, exit immediately. No averaging down on a losing position.`);
+
+  return risks.slice(0, 3);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN RUNNER — Called by "Analyse Now" button
+// ═══════════════════════════════════════════════════════════════════
+async function runStocksense() {
+  const sym    = document.getElementById('ai-sym-inp').value.trim().toUpperCase().replace(/\.NS|\.BO/gi,'');
+  const budget = parseInt(document.getElementById('ai-budget').value) || 25000;
+  if (!sym) {
+    document.getElementById('ai-output').innerHTML = '<div class="lm" style="color:var(--sell)">Please enter a stock symbol first.</div>';
+    return;
+  }
+
+  AI_CURRENT_SYM = sym;
+  const btn  = document.getElementById('ai-run-btn');
+  const prog = document.getElementById('ai-progress');
+  btn.disabled = true;
+  document.getElementById('ai-btn-txt').textContent = '⏳ Analysing…';
+  if(prog) { prog.style.display = 'flex'; ['lp1','lp2','lp3','lp4','lp5'].forEach(id => { const el=document.getElementById(id); if(el) el.className='lp-dot'; }); }
+
+  document.getElementById('ai-output').innerHTML = `
+    <div style="text-align:center;padding:28px;font-family:var(--fm)">
+      <div class="spin" style="width:24px;height:24px;margin:0 auto 12px"></div>
+      <div style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:4px">Running 5-Layer STOCKSENSE Analysis</div>
+      <div style="font-size:11px;color:var(--t3)">Fetching live data from your backend…</div>
+    </div>`;
+
+  try {
+    // === LAYER 1: Fetch market health if not already loaded ===
+    setLP(1, 'active');
+    if (!window.MH_DATA) await checkMarketHealth();
+    const l1 = calcLayer1();
+    setLP(1, 'done');
+
+    // Show VIX warning but DON'T block analysis — user deserves to see the data
+    const currentVix = window.MH_DATA?.vix || 0;
+    if (currentVix >= 20) {
+      // Just show a warning banner, continue with analysis
+      const vixWarnDiv = document.createElement('div');
+      vixWarnDiv.style.cssText = 'margin-bottom:12px;padding:10px 14px;background:var(--hold-bg);border:1px solid var(--hold-bd);border-radius:var(--r8);font-size:11px;font-family:var(--fm);color:var(--hold)';
+      vixWarnDiv.innerHTML = '⚠️ VIX at ' + currentVix.toFixed(1) + ' — Market fear is high. Reduce position size by 50%. Trade only the highest confidence setups.';
+      document.getElementById('ai-output').innerHTML = '';
+      document.getElementById('ai-output').appendChild(vixWarnDiv);
+    }
+
+    // === Fetch stock data from /stock endpoint ===
+    setLP(2, 'active');
+    let stockData = SD[sym];
+    if (!stockData || stockData.status !== 'ok') {
+      try { stockData = await api('/stock?symbol=' + sym + '&range=60d'); } catch(e) {}
+    }
+    if (!stockData || stockData.status !== 'ok') {
+      document.getElementById('ai-output').innerHTML =
+        `<div class="lm" style="color:var(--sell)">Cannot fetch data for "${sym}". Make sure it's a valid NSE symbol and backend is running.</div>`;
+      btn.disabled=false; document.getElementById('ai-btn-txt').textContent='🤖 Analyse Now';
+      if(prog) prog.style.display='none';
+      return;
+    }
+
+    // === LAYER 2: Technical (all from s.indicators) ===
+    const l2 = calcLayer2(stockData);
+    setLP(2, 'done');
+
+    // === LAYER 3: Fundamentals (proxied from available fields) ===
+    setLP(3, 'active');
+    const l3 = calcLayer3(stockData);
+    setLP(3, 'done');
+
+    // === LAYER 4: News (from /news endpoint) ===
+    setLP(4, 'active');
+    let newsData = [];
+    try { const nr = await api('/news?symbol=' + sym); newsData = nr.news || []; } catch(e) {}
+    const l4 = calcLayer4(stockData, newsData);
+    setLP(4, 'done');
+
+    // === LAYER 5: Risk blockers ===
+    setLP(5, 'active');
+    const l5 = calcLayer5(stockData);
+    if (l4.catalystAlert) l5.blockers.unshift('🚨 Negative Catalyst Alert (news score -3 or below) — avoid entry until this resolves.');
+    setLP(5, l5.clear ? 'done' : 'bad');
+
+    // === FINAL VERDICT ===
+    const final   = calcFinalSignal(l1, l2, l3, l4);
+    const verdict = buildVerdict(stockData, l1, l2, l3, l4, l5, final);
+    const tp      = buildTradePlan(stockData, final, l5, budget);
+    const risks   = buildRisks(stockData, l1, l2, l3, l4, l5, final);
+
+    AI_CURRENT_DATA = { sym, stockData, l1, l2, l3, l4, l5, final, tp, verdict, risks, budget };
+    renderStocksenseResult(stockData, l1, l2, l3, l4, l5, final, verdict, tp, risks, budget);
+
+  } catch(e) {
+    document.getElementById('ai-output').innerHTML =
+      `<div class="lm" style="color:var(--sell)">Analysis failed: ${e.message}</div>`;
+    console.error('STOCKSENSE error:', e);
+  }
+
+  btn.disabled=false;
+  document.getElementById('ai-btn-txt').textContent='🤖 Analyse Now';
+  if(prog) prog.style.display='none';
+}
+
+function setLP(n, status) {
+  const el = document.getElementById('lp'+n);
+  if(el) el.className = 'lp-dot ' + status;
+}
+
+// ── Render full result ────────────────────────────────────────────
+function renderStocksenseResult(s, l1, l2, l3, l4, l5, final, verdict, tp, risks, budget) {
+  const total  = final.total;
+  const pct    = Math.min(100, (total / 23) * 100);
+  const barCol = total >= 15 ? 'var(--buy)' : total >= 11 ? 'var(--hold)' : 'var(--sell)';
+  const ind    = s.indicators || {};
+
+  const ptsHtml = (pts) => {
+    const n = parseFloat(pts);
+    if (!n) return '<span class="lr-pts pts-z">0</span>';
+    return n > 0 ? `<span class="lr-pts pts-p">+${n}</span>` : `<span class="lr-pts pts-n">${n}</span>`;
+  };
+  const layerRowsHtml = (rows) => (rows||[]).map(r =>
+    `<div class="layer-row">
+       <span class="lr-ico">${r.ico||'➡️'}</span>
+       <span class="lr-key">${r.label}</span>
+       <span class="lr-val">${r.value}</span>
+       ${ptsHtml(r.pts)}
+     </div>`).join('');
+  const scCls = (s,mx) => s/mx >= 0.65 ? 'ls-ok' : s/mx >= 0.4 ? 'ls-warn' : 'ls-bad';
+
+  // Layer 5 HTML
+  const l5Hard = l5.blockers.filter(b => b.startsWith('❌') || b.startsWith('🔴') || b.startsWith('🚨'));
+  const l5HardHtml = l5Hard.length > 0
+    ? `<div class="blocker-alert"><div class="blocker-ico">🚨</div><div class="blocker-ttl">HARD BLOCKERS</div><div class="blocker-msg">${l5Hard.join('<br><br>')}</div></div>`
+    : '<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--buy);padding:6px 0"><span>✅</span><span>No hard blockers — trade is allowed</span></div>';
+  const l5SoftHtml = l5.softWarns.map(w => `<div class="risk-row">${w}</div>`).join('');
+
+  // Trade plan HTML
+  let tpHtml = '';
+  if (tp.show) {
+    tpHtml = `
+    <div class="trade-plan">
+      <div class="tp-hdr">📋 TRADE PLAN — ${AI_CURRENT_SYM}</div>
+      ${tp.waitForDip ? `<div style="background:var(--hold-bg);border:1px solid var(--hold-bd);border-radius:var(--r8);padding:8px 12px;margin-bottom:10px;font-size:11px;color:var(--hold)">⚠️ Stock up ${(s.changePct||0).toFixed(1)}% today — wait for 0.5–1% dip to ~₹${inr(Math.round(tp.entry*0.99))} before entering</div>` : ''}
+      <div class="tp-grid">
+        <div class="tp-item"><div class="tp-label">Entry Price</div><div class="tp-value" style="color:var(--buy)">₹${inr(tp.entry)}</div><div class="tp-sub">${tp.waitForDip ? 'Wait for dip' : 'Current price'}</div></div>
+        <div class="tp-item"><div class="tp-label">Stop Loss</div><div class="tp-value" style="color:var(--sell)">₹${inr(tp.sl)}</div><div class="tp-sub">-${tp.slPct}% | Exit immediately if hit</div></div>
+        <div class="tp-item"><div class="tp-label">Target 1 (40%)</div><div class="tp-value" style="color:#34d399">₹${inr(tp.t1)}</div><div class="tp-sub">+1.5% — sell 40% here</div></div>
+        <div class="tp-item"><div class="tp-label">Target 2 (40%)</div><div class="tp-value" style="color:#22c55e">₹${inr(tp.t2)}</div><div class="tp-sub">+2.5% — sell 40% here</div></div>
+        <div class="tp-item"><div class="tp-label">Target 3 (20%)</div><div class="tp-value" style="color:#16a34a">₹${inr(tp.t3)}</div><div class="tp-sub">+4.0% — hold last 20%</div></div>
+        <div class="tp-item"><div class="tp-label">Risk : Reward</div><div class="tp-value" style="color:#818cf8">1 : ${tp.rr}</div><div class="tp-sub" style="color:${tp.rrOk?'var(--buy)':'var(--sell)'}">${tp.rrOk ? '✅ Acceptable' : '⚠️ Below 1.5 — skip'}</div></div>
+      </div>
+      <div class="budget-box">
+        <div style="font-size:9px;font-family:var(--fm);letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:8px">For ₹${budget.toLocaleString('en-IN')} Budget</div>
+        <div class="budget-row"><span class="bl">Shares to buy</span><span class="bv">${tp.shares} shares</span></div>
+        <div class="budget-row"><span class="bl">Total investment</span><span class="bv">₹${tp.investment.toLocaleString('en-IN')}</span></div>
+        <div class="budget-row"><span class="bl">Profit at Target 1</span><span class="bv" style="color:var(--buy)">+₹${tp.profitT1.toLocaleString('en-IN')}</span></div>
+        <div class="budget-row"><span class="bl">Profit at Target 2</span><span class="bv" style="color:var(--buy)">+₹${tp.profitT2.toLocaleString('en-IN')}</span></div>
+        <div class="budget-row"><span class="bl">Max loss (if SL hit)</span><span class="bv" style="color:var(--sell)">-₹${tp.maxLoss.toLocaleString('en-IN')}</span></div>
+        <div class="budget-row"><span class="bl">Hold maximum</span><span class="bv">2–3 days (Day 3 exit all)</span></div>
+        <div class="budget-row"><span class="bl">Best entry time</span><span class="bv">10:30 AM – 1:00 PM IST</span></div>
+      </div>
+      <div style="margin-top:9px;font-size:10px;font-family:var(--fm);color:var(--t3);line-height:1.6">
+        ⏱ Time stop: Day 1 — hold if in profit, exit if at loss at close. Day 2 — book 50%+ if target not hit. Day 3 — EXIT ALL positions without exception. Never convert swing trade to long-term hold.
+      </div>
+    </div>`;
+  } else if (tp.blocked) {
+    tpHtml = '<div class="blocker-alert" style="margin-bottom:12px"><div class="blocker-ico">🚫</div><div class="blocker-ttl">Trade Plan Blocked</div><div class="blocker-msg">Hard blockers in Layer 5 prevent trade entry. Resolve issues first.</div></div>';
+  }
+
+  document.getElementById('ai-output').innerHTML = `
+    <!-- Price header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;padding:14px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r16);margin-bottom:12px">
+      <div>
+        <div style="font-size:17px;font-weight:900;color:var(--t1)">${s.name||AI_CURRENT_SYM}</div>
+        <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:2px">${AI_CURRENT_SYM} · NSE · ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</div>
+        <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:4px">52W: ₹${inr(Math.round(s.low52w||0))} — ₹${inr(Math.round(s.high52w||0))} &nbsp;|&nbsp; Vol: ${fv(s.volume||0)}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:26px;font-weight:900;font-family:var(--fm);color:var(--t1)">₹${(s.price||0).toFixed(2)}</div>
+        <div class="${(s.changePct||0)>=0?'up':'dn'}" style="font-size:12px;font-family:var(--fm)">${(s.changePct||0)>=0?'+':''}${s.changePct||0}% today | ${(s.change||0)>=0?'+':''}₹${Math.abs(s.change||0).toFixed(2)}</div>
+        <div style="font-size:10px;color:var(--t3);font-family:var(--fm);margin-top:4px">RSI: ${ind.rsi||'—'} &nbsp;|&nbsp; Vol: ${ind.volumeSignal||'normal'} &nbsp;|&nbsp; ${s.sentiment||'Neutral'}</div>
+      </div>
+    </div>
+
+    <!-- Verdict box -->
+    <div class="verdict-box ${final.cls}" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:26px;line-height:1">${final.emoji}</div>
+          <div style="font-size:18px;font-weight:900;color:${final.col};margin-top:4px">${final.signal}</div>
+          <div style="display:flex;align-items:baseline;gap:4px;margin-top:4px">
+            <span style="font-size:32px;font-weight:900;font-family:var(--fm);color:${final.col};line-height:1">${total}</span>
+            <span style="font-size:12px;color:var(--t3);font-family:var(--fm)">/ 23</span>
+          </div>
+          <div style="height:5px;width:130px;background:var(--bdr);border-radius:3px;overflow:hidden;margin-top:5px">
+            <div style="height:100%;width:${pct}%;background:${barCol};border-radius:3px;transition:width .8s ease"></div>
+          </div>
+          <div style="font-size:9px;font-family:var(--fm);color:var(--t3);margin-top:4px">L1:${l1.score} + L2:${l2.score} + L3:${l3.score} + L4:${l4.score}</div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:12px;color:var(--t2);line-height:1.7">${verdict}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Layer 1 -->
+    <div class="layer-card lc-global">
+      <div class="layer-hdr"><div class="layer-ttl">🌍 Layer 1: Global Market Health</div><span class="layer-score ${scCls(l1.score,5)}">${l1.score}/5 — ${l1.status}</span></div>
+      ${layerRowsHtml(l1.rows)}
+    </div>
+
+    <!-- Layer 2 -->
+    <div class="layer-card lc-tech">
+      <div class="layer-hdr"><div class="layer-ttl">📊 Layer 2: Technical Analysis</div><span class="layer-score ${scCls(l2.score,7)}">${l2.score}/7</span></div>
+      ${layerRowsHtml(l2.rows)}
+    </div>
+
+    <!-- Layer 3 -->
+    <div class="layer-card lc-fund">
+      <div class="layer-hdr"><div class="layer-ttl">💰 Layer 3: Fundamental Signals</div><span class="layer-score ${scCls(l3.score,6)}">${l3.score}/6</span></div>
+      ${layerRowsHtml(l3.rows)}
+    </div>
+
+    <!-- Layer 4 -->
+    <div class="layer-card lc-news">
+      <div class="layer-hdr"><div class="layer-ttl">📰 Layer 4: News & Catalysts</div><span class="layer-score ${l4.score>=2?'ls-ok':l4.score>=0?'ls-warn':'ls-bad'}">${l4.score>=0?'+':''}${l4.score}/5</span></div>
+      ${layerRowsHtml(l4.rows)}
+      ${l4.catalystAlert ? '<div class="risk-row">🚨 Negative Catalyst Alert — news score -3 or below. Avoid entry until resolved.</div>' : ''}
+    </div>
+
+    <!-- Layer 5 -->
+    <div class="layer-card lc-risk">
+      <div class="layer-hdr"><div class="layer-ttl">🚦 Layer 5: Risk Qualification</div><span class="layer-score ${l5.clear?'ls-ok':'ls-bad'}">${l5.clear?'✅ CLEAR':'🚨 BLOCKED'}</span></div>
+      ${l5HardHtml}
+      ${l5SoftHtml}
+    </div>
+
+    <!-- Trade Plan -->
+    ${tpHtml}
+
+    <!-- Top 3 Risks -->
+    <div style="margin-bottom:12px">
+      <div style="font-size:9px;font-family:var(--fm);letter-spacing:2px;text-transform:uppercase;color:var(--t3);margin-bottom:8px">⚠️ Top 3 Risks</div>
+      ${risks.map(r=>`<div class="risk-row">${r}</div>`).join('')}
+    </div>
+
+    <!-- Disclaimer -->
+    <div style="font-size:9px;font-family:var(--fm);color:var(--t3);text-align:center;padding:10px;border-top:1px solid var(--bdr);line-height:1.6">
+      ⚠️ Not SEBI registered. Educational purposes only. Always use stop loss. Never risk more than 2–3% of portfolio on a single trade.
+    </div>`;
+}
+
+// ── Watchlist Scorer ──────────────────────────────────────────────
+async function scoreWatchlist() {
+  const stocks = SL.filter(s => SD[s]?.status === 'ok');
+  if (!stocks.length) {
+    document.getElementById('watchlist-scores').innerHTML = '<div class="lm">Load stocks first from the Stocks tab, then come back here.</div>';
+    return;
+  }
+  document.getElementById('watchlist-scores').innerHTML = '<div class="lm"><span class="spin"></span> Running STOCKSENSE logic on all watchlist stocks…</div>';
+
+  if (!window.MH_DATA) await checkMarketHealth();
+  const l1 = calcLayer1();
+
+  const picks = stocks.map(sym => {
+    const s     = SD[sym];
+    const l2    = calcLayer2(s);
+    const l3    = calcLayer3(s);
+    const l4    = calcLayer4(s, []);
+    const l5    = calcLayer5(s);
+    const final = calcFinalSignal(l1, l2, l3, l4);
+    const tp    = buildTradePlan(s, final, l5, 25000);
+    const conf  = calcConfidence(l1, l2, l3, l4, l5, final);
+    return { sym, s, final, tp, l5, conf };
+  }).sort((a,b) => {
+    // Unblocked first, then by confidence, then total
+    if (a.l5.clear && !b.l5.clear) return -1;
+    if (!a.l5.clear && b.l5.clear) return 1;
+    return b.conf - a.conf || b.final.total - a.final.total;
+  });
+
+  const sigCol = sig => ['STRONG BUY','BUY'].includes(sig)?'var(--buy)':sig==='WEAK BUY'?'var(--hold)':['NO TRADE','DANGER'].includes(sig)?'var(--sell)':'var(--t2)';
+  const sigBg  = sig => ['STRONG BUY','BUY'].includes(sig)?'var(--buy-bg)':sig==='WEAK BUY'?'var(--hold-bg)':['NO TRADE','DANGER'].includes(sig)?'var(--sell-bg)':'var(--bg3)';
+  const ind    = s => s.indicators || {};
+
+  document.getElementById('watchlist-scores').innerHTML =
+    picks.map((p,i) => `
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 13px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r12);margin-bottom:8px;cursor:pointer;transition:border-color .15s"
+           onclick="aiPickSym('${p.sym}');document.getElementById('ai-sym-inp').value='${p.sym}'"
+           onmouseover="this.style.borderColor='var(--acc)'" onmouseout="this.style.borderColor='var(--bdr)'">
+        <div style="font-size:15px;font-weight:900;color:var(--t3);font-family:var(--fm);width:20px;flex-shrink:0">${i+1}</div>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:13px;font-weight:800;color:var(--t1)">${p.sym}</span>
+            <span style="font-size:9px;padding:2px 7px;border-radius:4px;font-family:var(--fm);font-weight:700;background:${sigBg(p.final.signal)};color:${sigCol(p.final.signal)}">${p.final.signal}</span>
+            ${!p.l5.clear?'<span style="font-size:9px;color:var(--sell);font-family:var(--fm)">🚫 Blocked</span>':''}
+          </div>
+          <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:3px">
+            RSI:${ind(p.s).rsi||'?'} · Vol:${ind(p.s).volumeSignal||'?'} · ${p.s.sentiment||'Neutral'} · ${(p.s.changePct||0)>=0?'+':''}${p.s.changePct||0}% today
+            ${p.tp.show ? ` · <span style="color:var(--buy)">SL ₹${inr(p.tp.sl)} → T2 ₹${inr(p.tp.t2)}</span>` : (p.l5.softWarns.length > 0 ? ` · <span style="color:var(--hold)">${p.l5.softWarns[0]}</span>` : '')}
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:21px;font-weight:900;font-family:var(--fm);color:${sigCol(p.final.signal)};line-height:1">${p.final.total}</div>
+          <div style="font-size:8px;font-family:var(--fm);color:var(--t3)">/23</div>
+        </div>
+      </div>`).join('') +
+    `<div style="font-size:9px;font-family:var(--fm);color:var(--t3);text-align:center;margin-top:6px">Click any stock to load into the analyser above · Not SEBI registered advice</div>`;
+}
+
+
+
+// ── Add "AI Analyse" button to detail page ────────────────────────
+const origOpenDet = openDet;
+async function openDet(sym) {
+  await origOpenDet(sym);
+  // Inject AI Analyse button at the top of detail if not already there
+  setTimeout(() => {
+    const det = document.getElementById('det');
+    if (det && !det.querySelector('.ai-det-btn')) {
+      const btn = document.createElement('div');
+      btn.className = 'ai-det-btn';
+      btn.style.cssText = 'margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+      btn.innerHTML = `<button class="btn btn-pri" style="font-size:11px" onclick="aiPickSym('${sym}');goPage('ai');runStocksense()">🤖 STOCKSENSE Full Analysis</button><span style="font-size:10px;font-family:var(--fm);color:var(--t3)">5-layer AI scoring · Trade plan · Risk check</span>`;
+      det.insertBefore(btn, det.firstChild);
+    }
+  }, 300);
+}
+
+
+
+// ═══════════════════════════════════════════════════════════════════
+// SMART SCANNER — 5-Layer Top Picks Engine
+// Scans NSE stocks/ETFs, runs full scoring, outputs ranked picks
+// ═══════════════════════════════════════════════════════════════════
+
+// Stock universes
+const SCAN_UNIVERSE = {
+  watchlist: () => SL,
+  nse: () => [
+    // Nifty 50 core
+    'RELIANCE','TCS','HDFCBANK','INFY','ICICIBANK','SBIN','BAJFINANCE',
+    'HINDUNILVR','ITC','BHARTIARTL','KOTAKBANK','WIPRO','AXISBANK',
+    'MARUTI','TATAMOTORS','SUNPHARMA','LT','HCLTECH','JSWSTEEL',
+    'TATASTEEL','NTPC','ONGC','POWERGRID','ADANIENT','DRREDDY',
+    'CIPLA','TITAN','NESTLEIND','TECHM','HINDALCO',
+    // Nifty Next 50
+    'BEL','HAL','DLF','BAJAJ-AUTO','HEROMOTOCO','EICHERMOT','M&M',
+    'TVSMOTOR','BPCL','IOC','GAIL','RECLTD','PFC','IRFC','HUDCO',
+    'RVNL','NHPC','TRENT','TATACONSUM','GODREJPROP',
+    'HDFCAMC','INDUSINDBK','SBICARD','LICHSGFIN','CANFINHOME',
+    'LUPIN','AUROPHARMA','TORNTPHARM','ZYDUSLIFE','MANKIND',
+    // High-liquidity Midcap F&O
+    'PERSISTENT','MPHASIS','LTIM','COFORGE','KPITTECH',
+    'DIXON','POLYCAB','HAVELLS','ABB','SIEMENS',
+    'JUBLFOOD','IRCTC','ZOMATO','NYKAA','PAYTM',
+    'ADANIGREEN','SUZLON','INOXWIND','TATAPOWER','JSWENERGY',
+    'DEEPAKNTR','PIIND','SRF','NAVINFLUOR','CHAMBLFERT',
+    'MUTHOOTFIN','CHOLAFIN','MANAPPURAM','M&MFIN','BAJAJFINSV',
+    'APOLLOHOSP','MAXHEALTH','LALPATHLAB','METROPOLIS','FORTIS',
+    'PHOENIXLTD','OBEROIRLTY','PRESTIGE','GODREJPROP','SOBHA'
+  ],
+  etf: () => ['GOLDBEES','SILVERBEES','NIFTYBEES','JUNIORBEES','COPPERBEES'],
+  all: () => {
+    const combined = [...new Set([
+      ...SCAN_UNIVERSE.watchlist(),
+      ...SCAN_UNIVERSE.nse(),
+      ...SCAN_UNIVERSE.etf()
+    ])];
+    return combined;
+  }
+};
+
+let SCAN_MODE = 'watchlist';
+
+function setUniverse(mode, btn) {
+  SCAN_MODE = mode;
+  document.querySelectorAll('.scan-opt-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  const syms = SCAN_UNIVERSE[mode]();
+  document.getElementById('scan-universe-lbl').textContent =
+    `Universe: ${mode === 'watchlist' ? 'Your watchlist' : mode === 'nse' ? 'NSE Top 30' : mode === 'etf' ? 'ETFs only' : 'All stocks + ETFs'} (${syms.length} stocks)`;
+}
+
+// ── Setup type detection ──────────────────────────────────────────
+function detectSetup(s) {
+  const ind = s.indicators || {};
+  const price = s.price || 0;
+
+  // BREAKOUT: Price at or above resistance
+  if (ind.resistance && price >= ind.resistance * 0.998) return 'Breakout';
+  if (ind.resistance && price >= ind.resistance * 0.97 && (s.changePct||0) > 1) return 'Near Breakout';
+
+  // SUPPORT BOUNCE: Price at support, moving up
+  if (ind.support && price <= ind.support * 1.025 && (s.changePct||0) >= 0) return 'Support Bounce';
+
+  // PULLBACK: Price dipped to SMA20 then bouncing
+  if (ind.sma20 && Math.abs(price - ind.sma20) / ind.sma20 < 0.015 && (s.changePct||0) > 0) return 'Pullback Buy';
+
+  // MOMENTUM: Strong upward move with volume
+  if ((s.changePct||0) > 1.5 && ind.volumeSignal === 'high') return 'Momentum';
+  if ((s.changePct||0) > 1) return 'Momentum';
+
+  // OVERSOLD REVERSAL
+  if ((ind.rsi||50) < 38) return 'Oversold Reversal';
+
+  return 'Consolidation';
+}
+
+// ── Confidence score (0-100) from layer scores ────────────────────
+function calcConfidence(l1, l2, l3, l4, l5, final) {
+  // Base: total score as % of max
+  let conf = (final.total / 23) * 100;
+
+  // Bonus for confluence (multiple layers agree)
+  const layersPositive = [l1.score/5, l2.score/7, l3.score/6, l4.score/5]
+    .filter(x => x >= 0.6).length;
+  if (layersPositive >= 3) conf += 8;
+  if (layersPositive === 4) conf += 5;
+
+  // Bonus for volume confirmation
+  if ((l2.rows||[]).find(r => r.label === 'Volume' && r.pts >= 1.5)) conf += 5;
+
+  // Penalty for Thursday
+  const mh = window.MH_DATA || {};
+  if (mh.isThursday) conf -= 8;
+
+  // Penalty for L5 soft warnings
+  if (!(l5.clear)) conf -= 12;
+
+  // Penalty for conflicting signals
+  if (l2.score < 3 && l4.score > 2) conf -= 5; // news good but tech bad
+
+  return Math.min(95, Math.max(25, Math.round(conf)));
+}
+
+// ── Risk level determination ──────────────────────────────────────
+function getRiskLevel(s, l1, l2, l5, conf) {
+  const ind = s.indicators || {};
+  const mh  = window.MH_DATA || {};
+
+  if (!l5.clear) return 'High';
+  if ((mh.vix||0) >= 18) return 'High';
+  if ((ind.rsi||50) > 68) return 'High';
+  if (mh.isThursday) return 'Medium';
+  if (l1.score >= 4 && l2.score >= 5 && conf >= 70) return 'Low';
+  if (l1.score >= 3 && l2.score >= 4) return 'Medium';
+  return 'Medium';
+}
+
+// ── Build reasoning factors for display ──────────────────────────
+function buildReasons(s, l2, l4, setup) {
+  const ind = s.indicators || {};
+  const reasons = [];
+
+  // Price action
+  const chg = s.changePct || 0;
+  if (setup === 'Breakout' || setup === 'Near Breakout')
+    reasons.push({ ico: '🚀', txt: `Breaking ₹${inr(ind.resistance||0)} resistance${chg > 0 ? ` (+${chg}% today)` : ''}` });
+  else if (setup === 'Support Bounce')
+    reasons.push({ ico: '📈', txt: `Bouncing off support ₹${inr(ind.support||0)} — low risk entry` });
+  else if (setup === 'Oversold Reversal')
+    reasons.push({ ico: '🔄', txt: `RSI ${ind.rsi} deeply oversold — mean-reversion likely` });
+  else if (setup === 'Momentum')
+    reasons.push({ ico: '⚡', txt: `Strong momentum +${chg}% today — institutional buying` });
+  else if (setup === 'Pullback Buy')
+    reasons.push({ ico: '📉', txt: `Healthy pullback to SMA20 ₹${inr(ind.sma20||0)} — trend intact` });
+  else
+    reasons.push({ ico: '➡️', txt: `₹${(s.price||0).toFixed(0)} — consolidating near support` });
+
+  // Volume
+  if (ind.volumeSignal === 'high')
+    reasons.push({ ico: '🔥', txt: `Volume spike — 2x+ average (smart money active)` });
+  else if (ind.volumeSignal === 'low')
+    reasons.push({ ico: '⚠️', txt: `Below average volume — weak conviction` });
+  else
+    reasons.push({ ico: '📊', txt: `Normal volume — standard participation` });
+
+  // RSI
+  const rsi = ind.rsi || 50;
+  if      (rsi < 35) reasons.push({ ico: '🟢', txt: `RSI ${rsi} — extreme oversold, strong bounce zone` });
+  else if (rsi < 50) reasons.push({ ico: '🟢', txt: `RSI ${rsi} — healthy momentum, room to run` });
+  else if (rsi < 65) reasons.push({ ico: '🟡', txt: `RSI ${rsi} — mid-range, trend following` });
+  else               reasons.push({ ico: '🟠', txt: `RSI ${rsi} — elevated, watch for reversal` });
+
+  // News sentiment
+  const l4score = l4.score || 0;
+  if      (l4score >= 2) reasons.push({ ico: '📰', txt: `Positive news flow supporting bullish case` });
+  else if (l4score <= -2) reasons.push({ ico: '📰', txt: `Negative news — adds downside risk` });
+  else                   reasons.push({ ico: '📰', txt: `No major news catalyst — technical trade only` });
+
+  return reasons.slice(0, 4);
+}
+
+// ── WHY this stock stands out vs others ──────────────────────────
+function buildWhyBest(s, l1, l2, l3, l4, final, rank, allPicks) {
+  const ind = s.indicators || {};
+  const parts = [];
+
+  if (rank === 1 && allPicks.length > 1) {
+    const second = allPicks[1];
+    const gap = final.total - second.final.total;
+    if (gap >= 2) parts.push(`Scores ${gap} points higher than #2 pick`);
+  }
+
+  // Key strengths
+  if ((ind.rsi||50) < 40 && ind.volumeSignal === 'high')
+    parts.push('rare combination of oversold RSI + high volume = high-probability bounce');
+  else if (l2.score >= 6)
+    parts.push('nearly perfect technical setup across all 7 indicators');
+  else if (l4.score >= 3)
+    parts.push('strong positive news catalyst backing the technical move');
+  else if (ind.volumeSignal === 'high' && (s.changePct||0) > 1.5)
+    parts.push('institutional-grade volume confirming the move');
+
+  // Sector + market context
+  const mh = window.MH_DATA || {};
+  if (l1.score >= 4) parts.push('global markets fully supportive today');
+
+  return parts.length > 0
+    ? `Stands out because: ${parts.join('; ')}.`
+    : `Score ${final.total}/23 with ${['STRONG BUY','BUY'].includes(final.signal) ? 'strong' : 'decent'} confluence across multiple layers.`;
+}
+
+// ── MAIN SCAN FUNCTION ────────────────────────────────────────────
+async function runSmartScan() {
+  const minScore = parseInt(document.getElementById('min-score-sel').value) || 11;
+  const btn      = document.getElementById('scan-run-btn');
+  const out      = document.getElementById('smart-scan-out');
+
+  btn.disabled = true;
+  document.getElementById('scan-run-txt').textContent = '⏳ Scanning…';
+
+  // Step display helper
+  const ssStep = (n, txt) => {
+    for (let i = 1; i <= 5; i++) {
+      const el = document.getElementById('ss'+i);
+      if (!el) continue;
+      el.className = i < n ? 'scan-step done' : i === n ? 'scan-step active' : 'scan-step';
+    }
+    if (txt) {
+      const el = document.getElementById('ss'+n);
+      if (el) el.lastChild.textContent = txt;
+    }
+  };
+
+  out.innerHTML = `
+    <div class="scan-progress">
+      <div style="font-size:12px;font-weight:700;color:var(--t1);margin-bottom:12px">Running STOCKSENSE scan…</div>
+      <div class="scan-step active" id="ss1"><div class="scan-step-dot"></div>Checking market health…</div>
+      <div class="scan-step" id="ss2"><div class="scan-step-dot"></div>Fetching + scoring stocks on server…</div>
+      <div class="scan-step" id="ss3"><div class="scan-step-dot"></div>Applying 5-layer filter…</div>
+      <div class="scan-step" id="ss4"><div class="scan-step-dot"></div>Ranking top picks…</div>
+      <div class="scan-step" id="ss5"><div class="scan-step-dot"></div>Building output…</div>
+    </div>`;
+
+  try {
+    // Step 1: Market health
+    ssStep(1, 'Checking market health (VIX, Nifty, Crude)…');
+    if (!window.MH_DATA) await checkMarketHealth();
+    const l1 = calcLayer1();
+
+    // Step 2: Call /scan-fast — server does all the heavy lifting
+    const modeLabel = {watchlist:'watchlist',nse:'NSE Top 30',etf:'ETFs',all:'All stocks'}[SCAN_MODE]||SCAN_MODE;
+    ssStep(2, `Server scoring ${modeLabel} (may take 15–30 sec first time, instant after)…`);
+
+    // Show live timer so user knows it's working
+    let elapsed = 0;
+    const timer = setInterval(() => {
+      elapsed++;
+      const el = document.getElementById('ss2');
+      if(el) el.lastChild.textContent = `Server scoring ${modeLabel}… ${elapsed}s (cached after first run)`;
+    }, 1000);
+
+    let scanData;
+    try {
+      const watchlistStr = SL.join(',');
+      scanData = await api(
+        `/scan-fast?mode=${SCAN_MODE}&watchlist=${watchlistStr}`,
+        90000  // 90s timeout — generous for first run
+      );
+    } finally {
+      clearInterval(timer);
+    }
+
+    ssStep(3, `Scored ${scanData.scanned||0} stocks, ${scanData.qualified||0} qualified…`);
+
+    const picks   = scanData.picks   || [];
+    const others  = scanData.others  || [];
+    const scanned = scanData.scanned || 0;
+
+    // Store fetched data in SD cache so detail analysis works
+    // Re-fetch top picks individually to get full indicator data
+    ssStep(4, 'Loading full data for top picks…');
+    const topSyms = picks.slice(0, 5).map(p => p.symbol);
+    await Promise.allSettled(topSyms.map(async sym => {
+      if (!SD[sym] || SD[sym].status !== 'ok') {
+        try {
+          const d = await api('/stock?symbol=' + sym + '&range=30d', 10000);
+          if (d?.status === 'ok') SD[sym] = d;
+        } catch {}
+      }
+    }));
+
+    ssStep(5, 'Rendering results…');
+
+    // Now re-score top picks using full JS 5-layer with real indicator data
+    // This gives more accurate results for the display
+    const fullScored = [];
+    for (const p of picks.slice(0, 10)) {
+      const sym = p.symbol;
+      const s   = SD[sym];
+      if (s?.status === 'ok') {
+        // Full JS scoring with complete data
+        const l2    = calcLayer2(s);
+        const l3    = calcLayer3(s);
+        const l4    = calcLayer4(s, []);
+        const l5    = calcLayer5(s);
+        const final = calcFinalSignal(l1, l2, l3, l4);
+        const conf  = calcConfidence(l1, l2, l3, l4, l5, final);
+        const setup = detectSetup(s);
+        const risk  = getRiskLevel(s, l1, l2, l5, conf);
+        const rsns  = buildReasons(s, l2, l4, setup);
+        const tp    = buildTradePlan(s, final, l5, 25000);
+        if (final.signal !== 'DANGER') {
+          fullScored.push({ sym, s, l1, l2, l3, l4, l5, final, conf, setup, risk, reasons: rsns, tp });
+        }
+      } else {
+        // Use server-scored data if we couldn't get full data
+        fullScored.push({
+          sym, s: { name: p.name, price: p.price, changePct: p.changePct,
+                    indicators: { rsi: p.rsi, volumeSignal: p.volumeSignal },
+                    sentiment: p.sentiment, recommendation: p.signal==='STRONG BUY'||p.signal==='BUY'?'BUY':p.signal==='AVOID'?'AVOID':'HOLD',
+                    confidence: p.confidence, high52w: 0, low52w: 0 },
+          l1, l2: {score: p.l2, rows:[]}, l3: {score: p.l3, rows:[]},
+          l4: {score: p.l4, rows:[], catalystAlert: false},
+          l5: {clear: true, blockers:[], softWarns:[], isThursday: new Date().getDay()===4},
+          final: { total: p.total, signal: p.signal,
+                   cls: ['STRONG BUY','BUY'].includes(p.signal)?'vb-buy':'vb-watch',
+                   emoji: ['STRONG BUY','BUY'].includes(p.signal)?'🟢':'🟡',
+                   col: ['STRONG BUY','BUY'].includes(p.signal)?'var(--buy)':'var(--hold)' },
+          conf: p.confidence, setup: p.setup||'Technical',
+          risk: p.confidence>=70?'Low':p.confidence>=55?'Medium':'High',
+          reasons: [{ico:'📊',txt:`Score ${p.total}/23 — ${p.setup||'Technical setup'}`},
+                    {ico:'📈',txt:`RSI: ${p.rsi} | Vol: ${p.volumeSignal}`},
+                    {ico:'💡',txt:`Entry ₹${p.entry} | SL ₹${p.sl} | T2 ₹${p.t2}`}],
+          tp: { show: true, entry: p.entry, sl: p.sl, t1: p.t1, t2: p.t2, t3: p.t3,
+                slPct: p.risk_pct, rr: p.rr, rrOk: p.rr >= 1.5,
+                shares: Math.floor(25000/p.entry), investment: Math.round(Math.floor(25000/p.entry)*p.entry),
+                profitT1: Math.round(Math.floor(25000/p.entry)*(p.t1-p.entry)),
+                profitT2: Math.round(Math.floor(25000/p.entry)*(p.t2-p.entry)),
+                maxLoss:  Math.round(Math.floor(25000/p.entry)*(p.entry-p.sl)) }
+        });
+      }
+    }
+
+    // Apply min score filter
+    const qualified = fullScored.filter(p => p.final.total >= minScore || p.conf >= 60);
+    const top3 = (qualified.length > 0 ? qualified : fullScored).slice(0, 3);
+
+    // ── RENDER ────────────────────────────────────────────────────
+    if (top3.length === 0) {
+      out.innerHTML = `<div class="no-picks">
+        <div style="font-size:28px;margin-bottom:8px">🔍</div>
+        <div style="font-weight:700;color:var(--t2);margin-bottom:6px">No picks found today</div>
+        <div>Scanned ${scanned} stocks. Market score: ${l1.score}/5 (${l1.status}).</div>
+        <div style="margin-top:8px;font-size:10px;color:var(--t3)">
+          Try: set Min Score to "11+ (Weak Buy)" · Switch universe to "All"
+        </div></div>`;
+      btn.disabled = false;
+      document.getElementById('scan-run-txt').textContent = '🔍 Find Top Picks';
+      return;
+    }
+
+    let html = '';
+
+    // Market context bar
+    const mhD   = window.MH_DATA || {};
+    const mktCol = l1.score>=4?'var(--buy)':l1.score>=3?'var(--hold)':'var(--sell)';
+    const mktBg  = l1.score>=4?'var(--buy-bg)':l1.score>=3?'var(--hold-bg)':'var(--sell-bg)';
+    const mktBd  = l1.score>=4?'var(--buy-bd)':l1.score>=3?'var(--hold-bd)':'var(--sell-bd)';
+    html += `<div style="margin:12px 18px 6px;padding:10px 14px;background:${mktBg};border:1px solid ${mktBd};border-radius:var(--r8);font-size:11px;font-family:var(--fm)">
+      <span style="color:${mktCol};font-weight:700">Market: ${l1.score}/5 — ${l1.status}</span>
+      <span style="color:var(--t3)"> &nbsp;|&nbsp; VIX: ${(mhD.vix||0).toFixed(1)} &nbsp;|&nbsp; Server scanned: ${scanned} stocks &nbsp;|&nbsp; Qualified: ${scanData.qualified||0}</span>
+      ${(mhD.vix||0)>=20?'<span style="color:var(--sell)"> &nbsp;|&nbsp; ⚠️ High VIX — use 50% position size</span>':''}
+    </div>`;
+
+    // Stock of the Day
+    const best    = top3[0];
+    const bestChg = (best.s.changePct||0) >= 0 ? 'up' : 'dn';
+    const bestExp = best.tp?.show
+      ? `+${(((best.tp.t2-best.tp.entry)/best.tp.entry)*100).toFixed(1)}% in 2–3 days`
+      : '+1–2% in 2–3 days';
+    const whyBest = buildWhyBest(best.s, best.l1, best.l2, best.l3, best.l4, best.final, 1, top3);
+
+    html += `<div class="sotd-banner" onclick="aiPickSym('${best.sym}');document.getElementById('ai-sym-inp').value='${best.sym}'">
+      <div class="sotd-rank">🏆 #1 STOCK OF THE DAY — ${new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+        <div>
+          <div class="sotd-sname">${best.s.name||best.sym}</div>
+          <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:2px">${best.sym} · ${best.setup}</div>
+          <div class="sotd-why">${whyBest}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:22px;font-weight:900;font-family:var(--fm);color:var(--t1)">₹${(best.s.price||0).toFixed(0)}</div>
+          <div class="${bestChg}" style="font-size:11px;font-family:var(--fm)">${(best.s.changePct||0)>=0?'+':''}${best.s.changePct||0}%</div>
+          <div style="font-size:11px;font-family:var(--fm);color:#fbbf24;margin-top:4px">Conf: ${best.conf}%</div>
+          <div style="font-size:10px;font-family:var(--fm);color:var(--buy);margin-top:2px">${bestExp}</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:9px;font-family:var(--fm);color:var(--t3)">Click to run full 5-layer analysis →</div>
+    </div>`;
+
+    // Pick cards
+    const rankCls   = ['pick-rank-1','pick-rank-2','pick-rank-3'];
+    const rankMedal = ['🥇','🥈','🥉'];
+    top3.forEach((p, idx) => {
+      const chgCls  = (p.s.changePct||0)>=0?'up':'dn';
+      const sigCls  = ['STRONG BUY','BUY'].includes(p.final.signal)?'b-b':p.final.signal==='WEAK BUY'?'b-h':'b-s';
+      const riskCls = p.risk==='Low'?'risk-low':p.risk==='Medium'?'risk-med':'risk-hi';
+      const confCol = p.conf>=70?'var(--buy)':p.conf>=55?'var(--hold)':'var(--sell)';
+      const expMv   = p.tp?.show ? '+'+((( p.tp.t2-p.tp.entry)/p.tp.entry)*100).toFixed(1)+'%' : '+1–2%';
+      const tpLine  = p.tp?.show
+        ? `<div style="font-size:10px;font-family:var(--fm);margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">
+            <span style="color:var(--buy)">Entry ₹${inr(p.tp.entry)}</span><span style="color:var(--t3)">→</span>
+            <span style="color:var(--sell)">SL ₹${inr(p.tp.sl)}</span><span style="color:var(--t3)">→</span>
+            <span style="color:#34d399">T1 ₹${inr(p.tp.t1)}</span>
+            <span style="color:#22c55e">T2 ₹${inr(p.tp.t2)}</span>
+           </div>` : '';
+
+      html += `<div class="pick-card ${rankCls[idx]}" onclick="aiPickSym('${p.sym}');document.getElementById('ai-sym-inp').value='${p.sym}'">
+        <div class="pick-hdr">
+          <div style="display:flex;align-items:center;gap:7px">
+            <span style="font-size:16px">${rankMedal[idx]}</span>
+            <div><div class="pick-name">${p.s.name||p.sym}</div><div class="pick-sym">${p.sym} · ${p.setup}</div></div>
+          </div>
+          <div class="pick-price">
+            <div class="pick-cmp">₹${(p.s.price||0).toFixed(0)}</div>
+            <div class="pick-chg ${chgCls}">${(p.s.changePct||0)>=0?'+':''}${p.s.changePct||0}%</div>
+          </div>
+        </div>
+        <div class="pick-badges">
+          <span class="bdg ${sigCls}">${p.final.signal}</span>
+          <span class="pick-setup">${p.setup}</span>
+          <span class="pick-conf" style="background:${confCol}22;color:${confCol};border:1px solid ${confCol}44">⭐ ${p.conf}%</span>
+          <span style="font-size:9px;font-family:var(--fm);color:var(--t3)">${p.final.total}/23</span>
+        </div>
+        <div class="pick-body">
+          <div class="pick-col">
+            <div class="pick-col-ttl">Reasoning</div>
+            ${(p.reasons||[]).map(r=>`<div class="pick-factor"><span class="pf-ico">${r.ico}</span><span>${r.txt}</span></div>`).join('')}
+          </div>
+          <div class="pick-col">
+            <div class="pick-col-ttl">Layer Scores</div>
+            <div class="pick-factor"><span class="pf-ico">🌍</span><span>Market: ${p.l1.score}/5</span></div>
+            <div class="pick-factor"><span class="pf-ico">📊</span><span>Technical: ${p.l2.score}/7</span></div>
+            <div class="pick-factor"><span class="pf-ico">💰</span><span>Fundamental: ${p.l3.score}/6</span></div>
+            <div class="pick-factor"><span class="pf-ico">📰</span><span>News: ${p.l4.score>=0?'+':''}${p.l4.score}/5</span></div>
+            <div class="pick-factor"><span class="pf-ico">🚦</span><span>${p.l5.clear?'✅ Clear':'⚠️ '+( p.l5.softWarns[0]||'').slice(0,35)}</span></div>
+          </div>
+        </div>
+        <div class="pick-footer">
+          <div>
+            <div class="pick-move" style="color:var(--buy)">Expected: ${expMv} in 2–3 days</div>
+            ${tpLine}
+            ${p.l5.softWarns.length>0?`<div style="font-size:9px;color:var(--hold);margin-top:4px">⚠️ ${p.l5.softWarns[0]}</div>`:''}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="pick-risk ${riskCls}">Risk: ${p.risk}</span>
+            <div class="conf-bar">
+              <div class="conf-track"><div class="conf-fill" style="width:${p.conf}%;background:${confCol}"></div></div>
+              <span style="font-size:9px;font-family:var(--fm);color:${confCol}">${p.conf}%</span>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:6px;font-size:9px;font-family:var(--fm);color:var(--t3)">⚠️ Not SEBI advice · Click card for full 5-layer analysis</div>
+      </div>`;
+    });
+
+    html += `<div class="scan-summary">
+      <span class="ss-stat">Server scanned: ${scanned}</span>
+      <span class="ss-stat">Qualified: ${scanData.qualified||0}</span>
+      <span class="ss-stat">Showing top ${top3.length}</span>
+      <span class="ss-stat">Market: ${l1.score}/5</span>
+      <span class="ss-stat">${scanData.timestamp||''}</span>
+    </div>`;
+
+    ssStep(5, 'Done!');
+    out.innerHTML = html;
+
+  } catch(e) {
+    out.innerHTML = `<div class="no-picks">
+      <div style="font-size:28px;margin-bottom:8px">⚠️</div>
+      <div style="font-weight:700;color:var(--sell);margin-bottom:6px">Scan failed</div>
+      <div style="font-size:11px;color:var(--t3)">${e.message}</div>
+      <div style="margin-top:8px;font-size:10px;color:var(--t3)">Make sure your server is running and deployed. Try again in 30 seconds.</div>
+    </div>`;
+    console.error('SmartScan error:', e);
+  }
+  btn.disabled = false;
+  document.getElementById('scan-run-txt').textContent = '🔍 Find Top Picks';
+}
+// Auto-update universe label when page loads
+function initScannerLabel() {
+  const el = document.getElementById('scan-universe-lbl');
+  if(el) el.textContent = `Universe: Your watchlist (${SL.length} stocks) — results cached 10 mins`;
+}
+
+// Update universe label when mode changes
+function setUniverse(mode, btn) {
+  SCAN_MODE = mode;
+  document.querySelectorAll('.scan-opt-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  const labels = {
+    watchlist: `Your watchlist (${SL.length} stocks) — fastest`,
+    nse:       'NSE Top 30 stocks — ~30 sec',
+    etf:       'ETFs only (5 stocks) — fastest',
+    all:       'NSE Top 30 + ETFs (35 stocks) — ~45 sec'
+  };
+  const el = document.getElementById('scan-universe-lbl');
+  if(el) el.textContent = 'Universe: ' + (labels[mode] || mode) + ' · results cached 10 mins';
+}
+
+
+
+
+// ═══════════════════════════════════════════════════════════════════
+// BATCH SCAN + PRICE ALERTS — Frontend JS
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Load batch scan results ───────────────────────────────────────
+async function loadBatchResults() {
+  const body = document.getElementById('batch-body');
+  body.innerHTML = '<div class="lm"><span class="spin"></span> Loading saved scan results…</div>';
+  try {
+    const data = await api('/batch-scan', 10000);
+
+    if (!data || (!data.stocks?.length && !data.etfs?.length)) {
+      body.innerHTML = `
+        <div class="lm" style="font-size:11px">
+          No saved results yet.<br>
+          Click <b>"Run Now"</b> to scan 150+ stocks. Takes ~3 minutes.<br>
+          After 3:30 PM IST, results save automatically every day.
+        </div>`;
+      return;
+    }
+
+    const ts    = data.scan_time || 'Unknown';
+    const total = data.total_scanned || 0;
+    const qual  = data.total_qualified || 0;
+    const stocks = data.stocks || [];
+    const etfs   = data.etfs   || [];
+
+    const sigCol = sig => ['STRONG BUY','BUY'].includes(sig)?'var(--buy)':sig==='WEAK BUY'?'var(--hold)':'var(--sell)';
+    const sigBg  = sig => ['STRONG BUY','BUY'].includes(sig)?'var(--buy-bg)':sig==='WEAK BUY'?'var(--hold-bg)':'var(--sell-bg)';
+    const medal  = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+
+    let html = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;font-size:10px;font-family:var(--fm);align-items:center">
+        <span style="padding:3px 9px;border-radius:6px;background:var(--bg3);border:1px solid var(--bdr);color:var(--t3)">📅 ${ts}</span>
+        <span style="padding:3px 9px;border-radius:6px;background:var(--bg3);border:1px solid var(--bdr);color:var(--t3)">Scanned: ${total} stocks</span>
+        <span style="padding:3px 9px;border-radius:6px;background:var(--buy-bg);border:1px solid var(--buy-bd);color:var(--buy)">✅ ${qual} qualified</span>
+      </div>`;
+
+    if (stocks.length > 0) {
+      html += `<div style="font-size:9px;font-family:var(--fm);letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:8px">Top Stock Picks</div>`;
+      html += stocks.map((p, i) => `
+        <div class="batch-pick" onclick="aiPickSym('${p.symbol}');document.getElementById('ai-sym-inp').value='${p.symbol}'">
+          <div class="batch-rank">${medal[i]||i+1}</div>
+          <div class="batch-info">
+            <div class="batch-name">${p.name||p.symbol}</div>
+            <div class="batch-meta">${p.symbol} · ${p.setup} · RSI:${p.rsi} · ${p.volumeSignal==='high'?'🔥 Vol Spike':p.volumeSignal==='low'?'↓ Low Vol':'Normal Vol'}</div>
+            <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap">
+              <span style="font-size:9px;padding:2px 7px;border-radius:4px;font-family:var(--fm);font-weight:700;background:${sigBg(p.signal)};color:${sigCol(p.signal)}">${p.signal}</span>
+              <span style="font-size:9px;padding:2px 7px;border-radius:4px;font-family:var(--fm);background:var(--bg3);color:var(--t3)">${p.total}/23</span>
+              <span style="font-size:9px;font-family:var(--fm);color:var(--buy)">T2: ₹${p.t2} (+2.5%)</span>
+              <span style="font-size:9px;font-family:var(--fm);color:var(--sell)">SL: ₹${p.sl}</span>
+            </div>
+          </div>
+          <div class="batch-right">
+            <div class="batch-price">₹${(p.price||0).toFixed(0)}</div>
+            <div class="batch-conf" style="color:${p.confidence>=70?'var(--buy)':p.confidence>=55?'var(--hold)':'var(--sell)'}">⭐ ${p.confidence}%</div>
+            <div style="font-size:9px;font-family:var(--fm);color:${(p.changePct||0)>=0?'var(--buy)':'var(--sell)'}">${(p.changePct||0)>=0?'+':''}${p.changePct||0}%</div>
+          </div>
+        </div>`).join('');
+    }
+
+    if (etfs.length > 0) {
+      html += `<div style="font-size:9px;font-family:var(--fm);letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin:12px 0 8px">Top ETF Picks</div>`;
+      html += etfs.map((p, i) => `
+        <div class="batch-pick" onclick="aiPickSym('${p.symbol}');document.getElementById('ai-sym-inp').value='${p.symbol}'">
+          <div class="batch-rank">🏅</div>
+          <div class="batch-info">
+            <div class="batch-name">${p.name||p.symbol}</div>
+            <div class="batch-meta">${p.symbol} · ${p.setup} · Score: ${p.total}/23</div>
+            <div style="margin-top:4px"><span style="font-size:9px;padding:2px 7px;border-radius:4px;font-family:var(--fm);font-weight:700;background:${sigBg(p.signal)};color:${sigCol(p.signal)}">${p.signal}</span></div>
+          </div>
+          <div class="batch-right">
+            <div class="batch-price">₹${(p.price||0).toFixed(0)}</div>
+            <div class="batch-conf" style="color:${p.confidence>=70?'var(--buy)':'var(--hold)'}">⭐ ${p.confidence}%</div>
+          </div>
+        </div>`).join('');
+    }
+
+    html += `<div style="font-size:9px;font-family:var(--fm);color:var(--t3);margin-top:10px;text-align:center">Click any pick to run full 5-layer analysis · Not SEBI advice</div>`;
+    body.innerHTML = html;
+  } catch(e) {
+    body.innerHTML = `<div class="lm" style="color:var(--sell)">Failed to load: ${e.message}</div>`;
+  }
+}
+
+async function triggerBatchScan() {
+  const body = document.getElementById('batch-body');
+  body.innerHTML = `
+    <div style="text-align:center;padding:20px;font-family:var(--fm)">
+      <div class="spin" style="width:24px;height:24px;margin:0 auto 10px"></div>
+      <div style="font-size:13px;font-weight:700;color:var(--t1);margin-bottom:4px">Scanning 150+ stocks…</div>
+      <div style="font-size:11px;color:var(--t3)">This takes ~3 minutes. Runs in background on server.</div>
+      <div style="font-size:10px;color:var(--t3);margin-top:8px">Results will be saved automatically. Click "Load" after 3 minutes.</div>
+    </div>`;
+  try {
+    await api('/batch-scan?force=true', 10000);
+    // Show countdown
+    let secs = 180;
+    const timer = setInterval(() => {
+      secs--;
+      const el = document.querySelector('#batch-body .spin');
+      if(el) el.parentElement.querySelector('div:last-child').textContent =
+        `Auto-loading in ${secs}s… or click Load button above.`;
+      if(secs <= 0) {
+        clearInterval(timer);
+        loadBatchResults();
+      }
+    }, 1000);
+  } catch(e) {
+    body.innerHTML = `<div class="lm" style="color:var(--sell)">Failed to start scan: ${e.message}</div>`;
+  }
+}
+
+// ── Price Alerts ──────────────────────────────────────────────────
+async function loadAlerts() {
+  try {
+    const data = await api('/alerts?action=list', 6000);
+    renderAlerts(data.alerts || [], data.triggered || []);
+    // Show triggered toasts
+    if (data.triggered?.length > 0) {
+      showTriggeredToasts(data.triggered);
+      const badge = document.getElementById('alert-count-badge');
+      if(badge) { badge.textContent = data.triggered.length + ' triggered'; badge.style.display=''; }
+    }
+  } catch(e) {
+    document.getElementById('alert-list').innerHTML =
+      `<div class="lm" style="color:var(--sell)">Failed: ${e.message}</div>`;
+  }
+}
+
+function renderAlerts(alerts, triggered) {
+  const list = document.getElementById('alert-list');
+  if (!alerts.length) {
+    list.innerHTML = '<div class="lm" style="font-size:11px">No alerts set. Add one above — symbol + price level + direction.</div>';
+    return;
+  }
+
+  const triggeredIds = new Set(triggered.map(t => t.symbol + '_' + t.condition));
+
+  list.innerHTML = alerts.map(a => {
+    const isFired  = a.triggered;
+    const condTxt  = a.condition === 'above' ? '↑ Above' : '↓ Below';
+    const condCol  = a.condition === 'above' ? 'var(--buy)' : 'var(--sell)';
+    return `
+      <div class="alert-item${isFired?' triggered':''}">
+        <div style="font-size:18px">${isFired?'🔔':'🔕'}</div>
+        <div style="flex:1;min-width:0">
+          <div class="alert-sym">${a.name||a.symbol}</div>
+          <div class="alert-cond">
+            <span style="color:${condCol};font-weight:700">${condTxt} ₹${a.target}</span>
+            ${isFired ? ` · <span style="color:var(--buy)">✅ Triggered at ₹${a.triggered_price} (${a.triggered_at})</span>` : ` · Watching · ${a.created}`}
+          </div>
+        </div>
+        <span class="alert-badge" style="background:${isFired?'var(--buy-bg)':'var(--bg3)'};color:${isFired?'var(--buy)':'var(--t3)'};border:1px solid ${isFired?'var(--buy-bd)':'var(--bdr)'}">${isFired?'HIT':'Active'}</span>
+        <button class="alert-del" onclick="deleteAlert('${a.id}')" title="Delete">✕</button>
+      </div>`;
+  }).join('');
+}
+
+async function addAlert() {
+  const sym    = document.getElementById('alrt-sym').value.trim().toUpperCase();
+  const target = parseFloat(document.getElementById('alrt-target').value);
+  const cond   = document.getElementById('alrt-cond').value;
+
+  if (!sym)        { alert('Enter a stock symbol'); return; }
+  if (!target || target <= 0) { alert('Enter a valid target price'); return; }
+
+  // Get stock name from NSE_STOCKS in frontend
+  const nameEl = sym;
+  try {
+    const res = await api('/search?q=' + sym, 4000);
+    const match = (res.results||[]).find(r => r.symbol === sym);
+    const name  = match?.name || sym;
+
+    await api(`/alerts?action=add&symbol=${sym}&target=${target}&condition=${cond}&name=${encodeURIComponent(name)}`, 6000);
+    document.getElementById('alrt-sym').value    = '';
+    document.getElementById('alrt-target').value = '';
+    await loadAlerts();
+    showToast(`✅ Alert set: ${name} ${cond} ₹${target}`, 'var(--buy)');
+  } catch(e) {
+    showToast('Failed to add alert: ' + e.message, 'var(--sell)');
+  }
+}
+
+async function deleteAlert(id) {
+  try {
+    await api(`/alerts?action=delete&id=${encodeURIComponent(id)}`, 6000);
+    await loadAlerts();
+  } catch(e) {
+    showToast('Delete failed: ' + e.message, 'var(--sell)');
+  }
+}
+
+function showTriggeredToasts(triggered) {
+  const container = document.getElementById('triggered-toast');
+  if(!container) return;
+  triggered.forEach(t => {
+    const div = document.createElement('div');
+    div.className = 'toast-item';
+    div.innerHTML = `
+      <div style="font-size:18px;margin-bottom:4px">🔔</div>
+      <div style="font-size:12px;font-weight:800;color:var(--buy)">${t.symbol} Alert Triggered!</div>
+      <div style="font-size:11px;color:var(--t2);margin-top:3px">${t.message}</div>
+      <div style="font-size:10px;font-family:var(--fm);color:var(--t3);margin-top:2px">${t.time}</div>
+      <button onclick="this.parentElement.remove()" style="position:absolute;top:8px;right:10px;background:none;border:none;color:var(--t3);cursor:pointer;font-size:16px">✕</button>`;
+    div.style.position = 'relative';
+    container.appendChild(div);
+    // Auto-remove after 10 seconds
+    setTimeout(() => div.remove(), 10000);
+  });
+}
+
+function showToast(msg, col) {
+  const container = document.getElementById('triggered-toast');
+  if(!container) return;
+  const div = document.createElement('div');
+  div.className = 'toast-item';
+  div.style.background = col === 'var(--buy)' ? 'var(--buy-bg)' : 'var(--sell-bg)';
+  div.style.borderColor = col === 'var(--buy)' ? 'var(--buy-bd)' : 'var(--sell-bd)';
+  div.innerHTML = `<div style="font-size:12px;color:${col}">${msg}</div>`;
+  container.appendChild(div);
+  setTimeout(() => div.remove(), 5000);
+}
+
+// ── Poll for triggered alerts every 2 minutes when AI tab is open ─
+let alertPollTimer = null;
+function startAlertPolling() {
+  if(alertPollTimer) return;
+  alertPollTimer = setInterval(async () => {
+    try {
+      const data = await api('/alerts?action=list', 6000);
+      if(data.triggered?.length > 0) {
+        showTriggeredToasts(data.triggered);
+        const badge = document.getElementById('alert-count-badge');
+        if(badge) { badge.textContent = data.triggered.length + ' triggered'; badge.style.display=''; }
+        // Clear from server after showing
+        await api('/alerts?action=clear_triggered', 3000);
+      }
+    } catch {}
+  }, 120000); // every 2 minutes
+}
+function stopAlertPolling() {
+  if(alertPollTimer) { clearInterval(alertPollTimer); alertPollTimer = null; }
+}
+
+
+
+renderTbl();
+boot();
+initScannerLabel();
