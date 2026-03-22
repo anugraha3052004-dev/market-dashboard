@@ -528,11 +528,8 @@ def fetch_yahoo(symbol, range_="30d"):
     if cached:
         return cached
 
-    # Use yfinance library if available (handles Yahoo blocks)
-    if YF_LIB:
-        return fetch_yahoo_yf(symbol, range_)
-
-    print(f"\n  [YAHOO] Fetching {yf_sym} via direct URL...")
+    # Direct Yahoo Finance URL - confirmed working on Render
+    print(f"\n  [YAHOO] Fetching {yf_sym}...")
     bases = YF_BASES.copy()
     random.shuffle(bases)
     for attempt, base in enumerate(bases, 1):
@@ -960,17 +957,18 @@ def fetch_td_history_parallel(sym, result_dict, lock):
 def fetch_stocks_master(symbols):
     """
     MASTER STOCK FETCHER
-    Strategy: Stooq (free CSV, no limits) → TD time_series (fallback)
-    Cache: 30 minutes per stock
+    Yahoo Finance WORKS on Render (confirmed via /debug)
+    Stooq = blocked, TD = daily limit exhausted
+    Simple: cache → Yahoo parallel → done
     """
     if not symbols:
         return {}
 
     syms = [s.upper().replace(".NS","").replace(".BO","").strip() for s in symbols]
+
+    # Step 1: Cache check
     result     = {}
     need_fetch = []
-
-    # Step 1: Cache check (30 min TTL)
     for sym in syms:
         cached = cache_get(f"{sym}:master")
         if cached and cached.get("status") == "ok":
@@ -979,125 +977,36 @@ def fetch_stocks_master(symbols):
             need_fetch.append(sym)
 
     if not need_fetch:
-        print(f"  [MASTER] All {len(result)} stocks from cache — instant!")
+        print(f"  [MASTER] All {len(result)} stocks from cache")
         return result
 
-    print(f"  [MASTER] Need to fetch: {need_fetch}")
+    print(f"  [MASTER] Fetching via Yahoo: {need_fetch}")
 
-    # Step 2: Stooq parallel fetch (all stocks simultaneously, no rate limits)
-    hist_data = {}
-    lock      = threading.Lock()
-    threads   = [
-        threading.Thread(target=fetch_stooq_history_thread,
-                         args=(sym, hist_data, lock), daemon=True)
-        for sym in need_fetch
-    ]
+    # Step 2: Yahoo Finance — all stocks in parallel threads
+    out  = {}
+    lock = threading.Lock()
+
+    def fetch_one(sym):
+        d = fetch_yahoo(sym, "30d")
+        with lock:
+            out[sym] = d
+
+    threads = [threading.Thread(target=fetch_one, args=(sym,), daemon=True)
+               for sym in need_fetch]
     for t in threads: t.start()
-    for t in threads: t.join(timeout=12)
-    print(f"  [MASTER] Stooq got history for: {list(hist_data.keys())}")
+    for t in threads: t.join(timeout=20)
 
-    # Step 3: Get live prices from TD (1 batch call for ALL stocks)
-    td_quotes = {}
-    if API_KEY:
-        try:
-            td_syms = ",".join([f"{s}:NSE" for s in need_fetch])
-            url     = f"{TWELVE_DATA_BASE}/quote?symbol={td_syms}&dp=2&apikey={API_KEY}"
-            req     = Request(url, headers={"User-Agent": "MarketDashboard/1.0"})
-            with urlopen(req, timeout=12) as r:
-                raw = json.loads(r.read().decode())
-            # Normalize single vs batch
-            if isinstance(raw, dict) and "close" in raw:
-                raw = {raw.get("symbol", need_fetch[0]+":NSE"): raw}
-            for k, v in raw.items():
-                if isinstance(v, dict) and v.get("close") and v.get("status") != "error":
-                    sym = k.replace(":NSE","").replace(":BSE","")
-                    td_quotes[sym] = v
-                    print(f"  [MASTER] TD quote OK: {sym} ₹{v['close']}")
-        except Exception as e:
-            print(f"  [MASTER] TD quote failed: {e}")
-
-    # Step 4: Build stock objects — Stooq history + TD live price
-    stooq_failed = []
+    # Step 3: Process results
     for sym in need_fetch:
-        hist = hist_data.get(sym)
-        td_q = td_quotes.get(sym)
+        d = out.get(sym, {})
+        if d.get("status") == "ok":
+            cache_set(f"{sym}:master", d, ttl=300)  # 5 min cache
+            result[sym] = d
+            print(f"  [MASTER] OK: {sym} ₹{d.get('price')} {d.get('recommendation')}")
+        else:
+            print(f"  [MASTER] FAIL: {sym} — {d.get('error','unknown')}")
 
-        if hist and hist.get("closes"):
-            # Stooq history available — build full stock
-            stock = build_stock_from_stooq(sym, hist, td_q)
-            if stock:
-                cache_set(f"{sym}:master", stock, ttl=1800)  # 30 min cache
-                result[sym] = stock
-                print(f"  [MASTER] Built from Stooq: {sym} ₹{stock['price']}")
-                continue
-
-        if td_q:
-            # No Stooq history but have TD quote — build basic stock
-            price   = float(td_q.get("close", 0))
-            prev    = float(td_q.get("previous_close") or price)
-            chg     = round(price - prev, 2)
-            pct     = round(float(td_q.get("percent_change") or 0), 2)
-            vol     = int(float(td_q.get("volume") or 0))
-            stock   = {
-                "symbol": sym, "name": td_q.get("name", sym),
-                "price": round(price,2), "change": chg, "changePct": pct,
-                "prevClose": round(prev,2), "volume": vol,
-                "high52w": float((td_q.get("fifty_two_week") or {}).get("high") or price*1.3),
-                "low52w":  float((td_q.get("fifty_two_week") or {}).get("low")  or price*0.7),
-                "history": [],
-                "indicators": {"rsi":None,"sma20":None,"sma50":None,"ema9":None,
-                                "macd":None,"macdSignal":None,"macdHist":None,
-                                "support":None,"resistance":None,
-                                "volumeSignal":"high" if vol>5000000 else "normal"},
-                "recommendation":"HOLD","sentiment":"Neutral",
-                "confidence":50,"reasons":["Price data from Twelve Data. Load individual stock for full analysis."],
-                "strategyPoints":[],"tradeLevels":calc_trade_levels(price,None,None,"HOLD",None,None),
-                "source":"twelvedata","status":"ok"
-            }
-            cache_set(f"{sym}:master", stock, ttl=1800)
-            result[sym] = stock
-            print(f"  [MASTER] Built from TD: {sym} ₹{price}")
-            continue
-
-        stooq_failed.append(sym)
-
-    # Step 5: TD /time_series for stocks where both Stooq and TD quote failed
-    for sym in stooq_failed:
-        print(f"  [MASTER] Trying TD time_series for {sym}...")
-        try:
-            url = (f"{TWELVE_DATA_BASE}/time_series"
-                   f"?symbol={sym}:NSE&interval=1day&outputsize=60&dp=2&apikey={API_KEY}")
-            req = Request(url, headers={"User-Agent": "MarketDashboard/1.0"})
-            with urlopen(req, timeout=12) as r:
-                ts = json.loads(r.read().decode())
-            if "values" in ts:
-                vals = list(reversed(ts["values"]))
-                closes  = [float(v["close"]) for v in vals if v.get("close")]
-                volumes = [int(float(v.get("volume",0))) for v in vals]
-                highs   = [float(v.get("high",0)) for v in vals]
-                lows    = [float(v.get("low",0)) for v in vals]
-                if closes:
-                    price = closes[-1]
-                    prev  = closes[-2] if len(closes)>1 else price
-                    chg   = round(price-prev,2)
-                    pct   = round((chg/prev*100) if prev else 0,2)
-                    hist_obj = {
-                        "symbol":sym,"rows":[{"date":v.get("datetime","")[:10],
-                            "close":float(v["close"]),"high":float(v.get("high",0)),
-                            "low":float(v.get("low",0)),"volume":int(float(v.get("volume",0)))}
-                            for v in vals if v.get("close")],
-                        "closes":closes,"volumes":volumes,"highs":highs,"lows":lows
-                    }
-                    stock = build_stock_from_stooq(sym, hist_obj, None)
-                    if stock:
-                        cache_set(f"{sym}:master", stock, ttl=1800)
-                        result[sym] = stock
-                        print(f"  [MASTER] Built from TD ts: {sym} ₹{stock['price']}")
-                        continue
-        except Exception as e:
-            print(f"  [MASTER] TD ts failed for {sym}: {e}")
-
-    print(f"  [MASTER] Final: {len(result)}/{len(syms)} stocks")
+    print(f"  [MASTER] Done: {len(result)}/{len(syms)} stocks")
     return result
 
 
