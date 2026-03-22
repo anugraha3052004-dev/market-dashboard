@@ -1,5 +1,5 @@
 """
-India Market Dashboard - Backend v5.2
+India Market Dashboard - Backend v5.55
 Commodities  → Twelve Data + gold-api.com (free)
 NSE Stocks   → Yahoo Finance (parallel + 5-min cache)
 News         → Yahoo Finance RSS (free)
@@ -92,17 +92,19 @@ def _save_disk_cache():
 def cache_get(key):
     _load_disk_cache()
     with _cache_lck:
-        # Check memory first
+        # Check memory first (respects per-key TTL)
         e = _cache.get(key)
-        if e and (time.time() - e["ts"]) < CACHE_TTL:
-            return e["data"]
-        # Check disk (30 min TTL for disk cache — good for scan results)
+        if e:
+            ttl = e.get("ttl", CACHE_TTL)
+            if (time.time() - e["ts"]) < ttl:
+                return e["data"]
+        # Check disk cache
         e = _disk_cache.get(key)
-        if e and (time.time() - e["ts"]) < 1800:
-            print(f"  [DISK CACHE HIT] {key}")
-            # Promote to memory
-            _cache[key] = e
-            return e["data"]
+        if e:
+            ttl = e.get("ttl", 1800)
+            if (time.time() - e["ts"]) < ttl:
+                _cache[key] = e  # promote to memory
+                return e["data"]
     return None
 
 def cache_set(key, data, ttl=None):
@@ -957,20 +959,18 @@ def fetch_td_history_parallel(sym, result_dict, lock):
 
 def fetch_stocks_master(symbols):
     """
-    MASTER STOCK FETCHER - Stooq primary (free, no blocks)
-    1. Cache check (instant)
-    2. TD /quote batch for live prices (1 API call)
-    3. Stooq history parallel for all stocks (OHLCV, indicators)
-    4. Build complete stock objects
+    MASTER STOCK FETCHER
+    Strategy: Stooq (free CSV, no limits) → TD time_series (fallback)
+    Cache: 30 minutes per stock
     """
     if not symbols:
         return {}
 
     syms = [s.upper().replace(".NS","").replace(".BO","").strip() for s in symbols]
-
-    # Step 1: Cache
     result     = {}
     need_fetch = []
+
+    # Step 1: Cache check (30 min TTL)
     for sym in syms:
         cached = cache_get(f"{sym}:master")
         if cached and cached.get("status") == "ok":
@@ -979,62 +979,125 @@ def fetch_stocks_master(symbols):
             need_fetch.append(sym)
 
     if not need_fetch:
-        print(f"  [MASTER] All {len(result)} from cache")
+        print(f"  [MASTER] All {len(result)} stocks from cache — instant!")
         return result
 
-    print(f"  [MASTER] Fetching {len(need_fetch)}: {need_fetch}")
+    print(f"  [MASTER] Need to fetch: {need_fetch}")
 
-    # Step 2: TD /quote for live prices (1 call for all)
+    # Step 2: Stooq parallel fetch (all stocks simultaneously, no rate limits)
+    hist_data = {}
+    lock      = threading.Lock()
+    threads   = [
+        threading.Thread(target=fetch_stooq_history_thread,
+                         args=(sym, hist_data, lock), daemon=True)
+        for sym in need_fetch
+    ]
+    for t in threads: t.start()
+    for t in threads: t.join(timeout=12)
+    print(f"  [MASTER] Stooq got history for: {list(hist_data.keys())}")
+
+    # Step 3: Get live prices from TD (1 batch call for ALL stocks)
     td_quotes = {}
     if API_KEY:
         try:
             td_syms = ",".join([f"{s}:NSE" for s in need_fetch])
-            url = f"{TWELVE_DATA_BASE}/quote?symbol={td_syms}&dp=2&apikey={API_KEY}"
-            req = Request(url, headers={"User-Agent":"MarketDashboard/1.0"})
+            url     = f"{TWELVE_DATA_BASE}/quote?symbol={td_syms}&dp=2&apikey={API_KEY}"
+            req     = Request(url, headers={"User-Agent": "MarketDashboard/1.0"})
             with urlopen(req, timeout=12) as r:
                 raw = json.loads(r.read().decode())
+            # Normalize single vs batch
             if isinstance(raw, dict) and "close" in raw:
                 raw = {raw.get("symbol", need_fetch[0]+":NSE"): raw}
-            for td_sym, q in raw.items():
-                if isinstance(q, dict) and q.get("close"):
-                    sym = td_sym.replace(":NSE","").replace(":BSE","")
-                    td_quotes[sym] = q
-            print(f"  [MASTER] TD quotes: {len(td_quotes)}/{len(need_fetch)}")
+            for k, v in raw.items():
+                if isinstance(v, dict) and v.get("close") and v.get("status") != "error":
+                    sym = k.replace(":NSE","").replace(":BSE","")
+                    td_quotes[sym] = v
+                    print(f"  [MASTER] TD quote OK: {sym} ₹{v['close']}")
         except Exception as e:
             print(f"  [MASTER] TD quote failed: {e}")
 
-    # Step 3: Stooq history for all stocks in parallel
-    hist_data = {}
-    hist_lock = threading.Lock()
-    threads   = [threading.Thread(
-                    target=fetch_stooq_history_thread,
-                    args=(sym, hist_data, hist_lock), daemon=True)
-                 for sym in need_fetch]
-    for t in threads: t.start()
-    for t in threads: t.join(timeout=12)
-    print(f"  [MASTER] Stooq history: {len(hist_data)} stocks")
-
-    # Step 4: Build stock objects
+    # Step 4: Build stock objects — Stooq history + TD live price
+    stooq_failed = []
     for sym in need_fetch:
-        hist     = hist_data.get(sym)
-        td_quote = td_quotes.get(sym)
+        hist = hist_data.get(sym)
+        td_q = td_quotes.get(sym)
 
-        if hist:
-            stock = build_stock_from_stooq(sym, hist, td_quote)
+        if hist and hist.get("closes"):
+            # Stooq history available — build full stock
+            stock = build_stock_from_stooq(sym, hist, td_q)
             if stock:
-                cache_set(f"{sym}:master", stock)
+                cache_set(f"{sym}:master", stock, ttl=1800)  # 30 min cache
                 result[sym] = stock
-                print(f"  [MASTER] OK: {sym} ₹{stock['price']} {stock['recommendation']}")
+                print(f"  [MASTER] Built from Stooq: {sym} ₹{stock['price']}")
                 continue
 
-        # Stooq failed - try Yahoo as last resort
-        print(f"  [MASTER] Stooq failed for {sym}, trying Yahoo...")
-        d = fetch_yahoo(sym, "30d")
-        if d.get("status") == "ok":
-            cache_set(f"{sym}:master", d)
-            result[sym] = d
+        if td_q:
+            # No Stooq history but have TD quote — build basic stock
+            price   = float(td_q.get("close", 0))
+            prev    = float(td_q.get("previous_close") or price)
+            chg     = round(price - prev, 2)
+            pct     = round(float(td_q.get("percent_change") or 0), 2)
+            vol     = int(float(td_q.get("volume") or 0))
+            stock   = {
+                "symbol": sym, "name": td_q.get("name", sym),
+                "price": round(price,2), "change": chg, "changePct": pct,
+                "prevClose": round(prev,2), "volume": vol,
+                "high52w": float((td_q.get("fifty_two_week") or {}).get("high") or price*1.3),
+                "low52w":  float((td_q.get("fifty_two_week") or {}).get("low")  or price*0.7),
+                "history": [],
+                "indicators": {"rsi":None,"sma20":None,"sma50":None,"ema9":None,
+                                "macd":None,"macdSignal":None,"macdHist":None,
+                                "support":None,"resistance":None,
+                                "volumeSignal":"high" if vol>5000000 else "normal"},
+                "recommendation":"HOLD","sentiment":"Neutral",
+                "confidence":50,"reasons":["Price data from Twelve Data. Load individual stock for full analysis."],
+                "strategyPoints":[],"tradeLevels":calc_trade_levels(price,None,None,"HOLD",None,None),
+                "source":"twelvedata","status":"ok"
+            }
+            cache_set(f"{sym}:master", stock, ttl=1800)
+            result[sym] = stock
+            print(f"  [MASTER] Built from TD: {sym} ₹{price}")
+            continue
 
-    print(f"  [MASTER] Done: {len(result)}/{len(syms)}")
+        stooq_failed.append(sym)
+
+    # Step 5: TD /time_series for stocks where both Stooq and TD quote failed
+    for sym in stooq_failed:
+        print(f"  [MASTER] Trying TD time_series for {sym}...")
+        try:
+            url = (f"{TWELVE_DATA_BASE}/time_series"
+                   f"?symbol={sym}:NSE&interval=1day&outputsize=60&dp=2&apikey={API_KEY}")
+            req = Request(url, headers={"User-Agent": "MarketDashboard/1.0"})
+            with urlopen(req, timeout=12) as r:
+                ts = json.loads(r.read().decode())
+            if "values" in ts:
+                vals = list(reversed(ts["values"]))
+                closes  = [float(v["close"]) for v in vals if v.get("close")]
+                volumes = [int(float(v.get("volume",0))) for v in vals]
+                highs   = [float(v.get("high",0)) for v in vals]
+                lows    = [float(v.get("low",0)) for v in vals]
+                if closes:
+                    price = closes[-1]
+                    prev  = closes[-2] if len(closes)>1 else price
+                    chg   = round(price-prev,2)
+                    pct   = round((chg/prev*100) if prev else 0,2)
+                    hist_obj = {
+                        "symbol":sym,"rows":[{"date":v.get("datetime","")[:10],
+                            "close":float(v["close"]),"high":float(v.get("high",0)),
+                            "low":float(v.get("low",0)),"volume":int(float(v.get("volume",0)))}
+                            for v in vals if v.get("close")],
+                        "closes":closes,"volumes":volumes,"highs":highs,"lows":lows
+                    }
+                    stock = build_stock_from_stooq(sym, hist_obj, None)
+                    if stock:
+                        cache_set(f"{sym}:master", stock, ttl=1800)
+                        result[sym] = stock
+                        print(f"  [MASTER] Built from TD ts: {sym} ₹{stock['price']}")
+                        continue
+        except Exception as e:
+            print(f"  [MASTER] TD ts failed for {sym}: {e}")
+
+    print(f"  [MASTER] Final: {len(result)}/{len(syms)} stocks")
     return result
 
 
@@ -2350,39 +2413,7 @@ def run():
     threading.Thread(target=batch_scan_scheduler, daemon=True).start()
     threading.Thread(target=check_alerts, daemon=True).start()
 
-    # Pre-warm cache with top 15 liquid stocks on startup
-    def prewarm():
-        time.sleep(5)  # wait for server to fully start
-        TOP_15 = ["RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK",
-                  "SBIN","BAJFINANCE","ITC","BHARTIARTL","WIPRO",
-                  "AXISBANK","TATAMOTORS","HCLTECH","SUNPHARMA","LT"]
-        print("  [STARTUP] Pre-warming cache using master fetcher…")
-        warm_data = fetch_stocks_master(TOP_15)
-        warm_count = sum(1 for v in warm_data.values() if v.get("status")=="ok")
-        print(f"  [STARTUP] Pre-warm done: {warm_count}/15 stocks cached via TD+Yahoo")
-        # Also run scan-fast in background so first click is instant
-        try:
-            from_cache = cache_get("scan-fast-nse")
-            if not from_cache:
-                print("  [STARTUP] Pre-computing NSE scan…")
-                # Simulate /scan-fast for nse mode
-                NSE_30 = TOP_15 + ["MARUTI","JSWSTEEL","TATASTEEL","NTPC",
-                                    "ONGC","POWERGRID","ADANIENT","DRREDDY",
-                                    "CIPLA","TITAN","NESTLEIND","TECHM","HINDALCO","KOTAKBANK","BAJAJFINSV"]
-                all_data = fetch_yahoo_multi(NSE_30, "20d")
-                scored = [r for r in [score_stock_python(d) for d in all_data.values()] if r]
-                scored.sort(key=lambda x: (-x["confidence"], -x["total"]))
-                buys = [s for s in scored if s["signal"] in ("STRONG BUY","BUY","WEAK BUY")]
-                cache_set("scan-fast-nse", {
-                    "picks": buys[:10], "others": scored[:5],
-                    "scanned": len(all_data), "qualified": len(buys),
-                    "mode": "nse", "timestamp": time.strftime("%H:%M IST")
-                })
-                print(f"  [STARTUP] NSE scan cached: {len(buys)} picks found")
-        except Exception as e:
-            print(f"  [STARTUP] Pre-scan error: {e}")
-
-    threading.Thread(target=prewarm, daemon=True).start()
+    print("  [STARTUP] Server ready. Stocks load on first request (Stooq + TD + cached 30min)")
 
     # Run initial batch scan on startup (in background, non-blocking)
     saved = load_scan_results()
