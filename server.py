@@ -547,22 +547,16 @@ def fetch_yahoo_multi(symbols, range_="30d"):
     """
     out  = {}
     lock = threading.Lock()
-    BATCH = 5  # 5 parallel — faster for scanner, still avoids rate limiting
-
+    # Fetch ALL stocks in parallel simultaneously — no batching
+    # Each thread independent, max 8s timeout per stock
     def fetch_one(sym):
         result = fetch_yahoo(sym, range_)
         with lock:
             out[sym] = result
 
-    # Split into batches
-    batches = [symbols[i:i+BATCH] for i in range(0, len(symbols), BATCH)]
-    for batch in batches:
-        threads = [threading.Thread(target=fetch_one, args=(s,)) for s in batch]
-        for t in threads: t.start()
-        for t in threads: t.join(timeout=6)  # 6s timeout — faster, Yahoo is usually quick
-        # Small pause between batches only if there are multiple batches
-        if len(batches) > 1:
-            time.sleep(0.2)
+    threads = [threading.Thread(target=fetch_one, args=(s,), daemon=True) for s in symbols]
+    for t in threads: t.start()
+    for t in threads: t.join(timeout=8)  # 8s max per stock, all run simultaneously
 
     return out
 
@@ -841,18 +835,14 @@ def fetch_td_batch_quote(symbols):
 
 def fetch_stocks_master(symbols):
     """
-    MASTER STOCK FETCHER - Fast, Reliable, Always Works
-    
-    Flow:
-    1. Cache hit  -> instant return
-    2. TD /quote  -> live price/volume for ALL stocks in 1 call
-    3. TD /time_series -> 30-day history per stock (for indicators)
-    4. Yahoo fallback -> if TD fails completely
+    MASTER STOCK FETCHER - Fast parallel fetch
+    Uses Yahoo Finance parallel threads (proven fast)
+    TD /quote used only to update prices if Yahoo is stale
+    Cache: 5 minutes
     """
     if not symbols:
         return {}
 
-    # Normalize symbols
     syms = [s.upper().replace(".NS","").replace(".BO","").strip() for s in symbols]
 
     # Step 1: Cache check
@@ -866,147 +856,64 @@ def fetch_stocks_master(symbols):
             need_fetch.append(sym)
 
     if not need_fetch:
-        print(f"  [MASTER] All {len(result)} stocks from cache - instant!")
+        print(f"  [MASTER] All {len(result)} from cache — instant")
         return result
 
-    print(f"  [MASTER] Need to fetch: {need_fetch}")
+    print(f"  [MASTER] Fetching {len(need_fetch)} stocks in parallel...")
 
-    # Step 2: Try Twelve Data (fast, reliable)
-    if API_KEY:
+    # Step 2: Yahoo Finance parallel fetch (FAST - all stocks simultaneously)
+    yahoo_data = fetch_yahoo_multi(need_fetch, "30d")
+    
+    for sym, d in yahoo_data.items():
+        if d.get("status") == "ok":
+            cache_set(f"{sym}:master", d)
+            result[sym] = d
+
+    # Step 3: For stocks Yahoo couldn't get, try TD as fallback
+    still_missing = [s for s in need_fetch if s not in result]
+    if still_missing and API_KEY:
+        print(f"  [MASTER] TD fallback for {len(still_missing)} stocks Yahoo missed")
         try:
-            # ONE call for live quotes (price, volume, change)
-            td_syms = ",".join([f"{s}:NSE" for s in need_fetch])
-            quote_url = f"{TWELVE_DATA_BASE}/quote?symbol={td_syms}&dp=2&apikey={API_KEY}"
-            print(f"  [MASTER] TD /quote for {len(need_fetch)} stocks...")
-            req = Request(quote_url, headers={"User-Agent":"MarketDashboard/1.0"})
-            with urlopen(req, timeout=15) as r:
-                quotes_raw = json.loads(r.read().decode())
-
-            # Normalize to dict if single stock
-            if isinstance(quotes_raw, dict) and "symbol" in quotes_raw and "close" in quotes_raw:
-                key = quotes_raw["symbol"]
-                quotes_raw = {key: quotes_raw}
-
-            print(f"  [MASTER] TD /quote returned {len(quotes_raw)} stocks")
-
-            # Step 3: For each stock, get 30-day history for indicators
-            td_built = []
-            for td_sym, q in quotes_raw.items():
-                if not isinstance(q, dict):
+            td_syms = ",".join([f"{s}:NSE" for s in still_missing])
+            url = f"{TWELVE_DATA_BASE}/quote?symbol={td_syms}&dp=2&apikey={API_KEY}"
+            req = Request(url, headers={"User-Agent":"MarketDashboard/1.0"})
+            with urlopen(req, timeout=10) as r:
+                raw = json.loads(r.read().decode())
+            if isinstance(raw, dict) and "symbol" in raw:
+                raw = {raw["symbol"]: raw}
+            for td_sym, q in raw.items():
+                if not isinstance(q, dict) or q.get("status") == "error":
                     continue
-                if q.get("status") == "error" or not q.get("close"):
-                    print(f"  [MASTER] TD quote error for {td_sym}: {q.get('message','no data')}")
-                    continue
-
                 sym = td_sym.replace(":NSE","").replace(":BSE","")
-
-                try:
-                    price    = float(q.get("close") or 0)
-                    prev     = float(q.get("previous_close") or price)
-                    chg      = round(price - prev, 2)
-                    chg_pct  = round(float(q.get("percent_change") or 0), 2)
-                    volume   = int(float(q.get("volume") or 0))
-                    h52      = float(q.get("fifty_two_week",{}).get("high") or price*1.3)
-                    l52      = float(q.get("fifty_two_week",{}).get("low")  or price*0.7)
-                    name     = q.get("name") or sym
-
-                    if price <= 0:
-                        continue
-
-                    # Get history for RSI/MACD/SMA
-                    closes_c = []
-                    vols_c   = []
-                    history  = []
-
-                    try:
-                        ts_url = (f"{TWELVE_DATA_BASE}/time_series"
-                                  f"?symbol={sym}:NSE&interval=1day"
-                                  f"&outputsize=60&dp=2&apikey={API_KEY}")
-                        req2 = Request(ts_url, headers={"User-Agent":"MarketDashboard/1.0"})
-                        with urlopen(req2, timeout=12) as r2:
-                            ts_raw = json.loads(r2.read().decode())
-
-                        if "values" in ts_raw:
-                            vals = list(reversed(ts_raw["values"]))  # oldest first
-                            closes_c = [float(v["close"]) for v in vals if v.get("close")]
-                            vols_c   = [int(float(v.get("volume",0))) for v in vals]
-                            history  = [{"date":v.get("datetime","")[:10],
-                                         "close":round(float(v["close"]),2),
-                                         "high":round(float(v.get("high",0)),2),
-                                         "low":round(float(v.get("low",0)),2),
-                                         "volume":int(float(v.get("volume",0)))}
-                                        for v in vals if v.get("close")]
-                            print(f"  [MASTER] {sym}: got {len(closes_c)} days history via TD")
-                    except Exception as ts_e:
-                        print(f"  [MASTER] {sym} history failed: {ts_e} - using price only")
-
-                    # Compute indicators
-                    sma20 = calc_sma(closes_c, 20)
-                    sma50 = calc_sma(closes_c, 50)
-                    ema9  = calc_ema(closes_c, 9)
-                    rsi   = calc_rsi(closes_c)
-                    macd, sig_line, macd_hist = calc_macd(closes_c)
-                    support, resistance = calc_support_resistance(closes_c)
-
-                    # Volume signal from quote volume vs typical
-                    if vols_c and len(vols_c) >= 5:
-                        vol_sig = calc_volume_signal(vols_c[-10:])
-                    elif volume > 5000000:
-                        vol_sig = "high"
-                    elif volume > 500000:
-                        vol_sig = "normal"
-                    else:
-                        vol_sig = "low"
-
-                    spread = ((price - support)/support*100) if support and price else None
-                    confidence = calc_confidence(rsi, macd_hist, vol_sig, chg_pct, spread)
-                    rec, sentiment, reasons, strat_pts = get_recommendation(
-                        rsi, macd_hist, chg_pct, vol_sig, price,
-                        support, resistance, sma20, sma50, ema9
-                    )
-                    trade_levels = calc_trade_levels(price, support, resistance, rec, rsi, sma20)
-
-                    stock = {
-                        "symbol": sym, "name": name,
-                        "price": round(price,2), "change": chg, "changePct": chg_pct,
-                        "prevClose": round(prev,2), "volume": volume,
-                        "high52w": round(h52,2), "low52w": round(l52,2),
-                        "history": history[-30:],
-                        "indicators": {
-                            "sma20":sma20,"sma50":sma50,"ema9":ema9,
-                            "rsi":rsi,"macd":macd,"macdSignal":sig_line,
-                            "macdHist":macd_hist,"support":support,
-                            "resistance":resistance,"volumeSignal":vol_sig,
-                        },
-                        "recommendation": rec, "sentiment": sentiment,
-                        "confidence": confidence, "reasons": reasons,
-                        "strategyPoints": strat_pts, "tradeLevels": trade_levels,
-                        "source": "twelvedata", "status": "ok"
-                    }
-                    result[sym] = stock
-                    cache_set(f"{sym}:master", stock)
-                    td_built.append(sym)
-                    print(f"  [MASTER] Built: {sym} ₹{price} RSI={rsi} rec={rec}")
-
-                except Exception as e:
-                    print(f"  [MASTER] Build error {sym}: {e}")
-
-            need_fetch = [s for s in need_fetch if s not in td_built]
-            print(f"  [MASTER] TD built {len(td_built)} stocks, {len(need_fetch)} still needed")
-
+                price = float(q.get("close") or 0)
+                if price <= 0: continue
+                prev    = float(q.get("previous_close") or price)
+                chg     = round(price - prev, 2)
+                chg_pct = round(float(q.get("percent_change") or 0), 2)
+                volume  = int(float(q.get("volume") or 0))
+                # Basic stock with limited indicators
+                stock = {
+                    "symbol": sym, "name": q.get("name", sym),
+                    "price": round(price,2), "change": chg, "changePct": chg_pct,
+                    "prevClose": round(prev,2), "volume": volume,
+                    "high52w": float(q.get("fifty_two_week",{}).get("high") or price*1.3),
+                    "low52w":  float(q.get("fifty_two_week",{}).get("low")  or price*0.7),
+                    "history": [],
+                    "indicators": {"rsi":None,"sma20":None,"sma50":None,
+                                   "macd":None,"macdHist":None,"support":None,
+                                   "resistance":None,"volumeSignal":"normal"},
+                    "recommendation":"HOLD","sentiment":"Neutral",
+                    "confidence":50,"reasons":[],"strategyPoints":[],
+                    "tradeLevels":calc_trade_levels(price,None,None,"HOLD",None,None),
+                    "source":"twelvedata","status":"ok"
+                }
+                cache_set(f"{sym}:master", stock)
+                result[sym] = stock
+                print(f"  [MASTER] TD fallback OK: {sym} ₹{price}")
         except Exception as e:
-            print(f"  [MASTER] TD failed entirely: {e}")
+            print(f"  [MASTER] TD fallback failed: {e}")
 
-    # Step 4: Yahoo fallback for anything TD couldn't get
-    if need_fetch:
-        print(f"  [MASTER] Yahoo fallback for: {need_fetch}")
-        yahoo_data = fetch_yahoo_multi(need_fetch, "30d")
-        for sym, d in yahoo_data.items():
-            if d.get("status") == "ok":
-                cache_set(f"{sym}:master", d)
-                result[sym] = d
-
-    print(f"  [MASTER] Final: {len(result)}/{len(syms)} stocks ready")
+    print(f"  [MASTER] Done: {len(result)}/{len(syms)} stocks ready")
     return result
 
 
