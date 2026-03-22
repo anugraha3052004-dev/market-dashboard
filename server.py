@@ -1642,6 +1642,77 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"status":"ok","api_key_set":bool(API_KEY),
                 "stocks":"Yahoo Finance","commodities":"Twelve Data"}); return
 
+        # ── DEBUG ENDPOINT — tests every data source live ──────────
+        if path == "/debug":
+            report = {
+                "api_key_set": bool(API_KEY),
+                "api_key_prefix": API_KEY[:8]+"..." if API_KEY else "NOT SET",
+                "python_version": __import__("sys").version[:10],
+                "tests": {}
+            }
+
+            # Test 1: Stooq
+            try:
+                url = "https://stooq.com/q/d/l/?s=reliance.ns&i=d"
+                req = Request(url, headers={"User-Agent":"Mozilla/5.0"})
+                with urlopen(req, timeout=10) as r:
+                    text = r.read().decode()[:300]
+                report["tests"]["stooq"] = {"status":"OK","response":text[:200]}
+            except Exception as e:
+                report["tests"]["stooq"] = {"status":"FAIL","error":str(e)}
+
+            # Test 2: Twelve Data /quote
+            if API_KEY:
+                try:
+                    url = f"{TWELVE_DATA_BASE}/quote?symbol=RELIANCE:NSE&dp=2&apikey={API_KEY}"
+                    req = Request(url, headers={"User-Agent":"MarketDashboard/1.0"})
+                    with urlopen(req, timeout=12) as r:
+                        raw = json.loads(r.read().decode())
+                    report["tests"]["td_quote"] = {
+                        "status":"OK" if raw.get("close") else "ERROR",
+                        "close": raw.get("close"),
+                        "message": raw.get("message",""),
+                        "status_field": raw.get("status","")
+                    }
+                except Exception as e:
+                    report["tests"]["td_quote"] = {"status":"FAIL","error":str(e)}
+            else:
+                report["tests"]["td_quote"] = {"status":"SKIP","reason":"No API key"}
+
+            # Test 3: Twelve Data /time_series
+            if API_KEY:
+                try:
+                    url = f"{TWELVE_DATA_BASE}/time_series?symbol=RELIANCE:NSE&interval=1day&outputsize=5&apikey={API_KEY}"
+                    req = Request(url, headers={"User-Agent":"MarketDashboard/1.0"})
+                    with urlopen(req, timeout=12) as r:
+                        raw = json.loads(r.read().decode())
+                    report["tests"]["td_timeseries"] = {
+                        "status":"OK" if "values" in raw else "ERROR",
+                        "has_values": "values" in raw,
+                        "row_count": len(raw.get("values",[])),
+                        "message": raw.get("message",""),
+                        "status_field": raw.get("status","")
+                    }
+                except Exception as e:
+                    report["tests"]["td_timeseries"] = {"status":"FAIL","error":str(e)}
+
+            # Test 4: Yahoo Finance
+            try:
+                url = "https://query1.finance.yahoo.com/v8/finance/chart/RELIANCE.NS?interval=1d&range=5d"
+                req = Request(url, headers=get_yf_headers())
+                with urlopen(req, timeout=10) as r:
+                    raw = json.loads(r.read().decode())
+                price = raw["chart"]["result"][0]["meta"].get("regularMarketPrice")
+                report["tests"]["yahoo"] = {"status":"OK","price":price}
+            except Exception as e:
+                report["tests"]["yahoo"] = {"status":"FAIL","error":str(e)}
+
+            # Test 5: Cache status
+            report["cache_size"] = len(_cache)
+            report["cached_stocks"] = [k for k in _cache if ":master" in k]
+
+            self.send_json(report); return
+
         # single stock with full indicators
         if path == "/stock":
             sym = flat.get("symbol","").strip()
